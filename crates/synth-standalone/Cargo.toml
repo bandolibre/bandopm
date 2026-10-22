@@ -1,0 +1,20 @@
+[package]
+name = "synth-standalone"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Real-time Linux standalone polyphonic bandoneon synthesizer bound to a MIDI device by name"
+
+[[bin]]
+name = "synth-standalone"
+path = "src/main.rs"
+
+[dependencies]
+synth-core = { path = "../synth-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+hound = { workspace = true }
+rtrb = { workspace = true }
+libloading = { workspace = true }

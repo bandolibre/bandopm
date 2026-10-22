@@ -1,0 +1,9 @@
+[package]
+name = "synth-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform-agnostic real-time physical modeling bandoneon DSP engine for Bandolibre"
+
+[dependencies]
+serde = { workspace = true }

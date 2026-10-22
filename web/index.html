@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bandolibre Physical Modeling Synthesizer</title>
+  <style>
+    :root {
+      --bg: #0f141c;
+      --card: #18202c;
+      --border: #2a364b;
+      --fg: #e6edf3;
+      --muted: #8b9bb4;
+      --ok: #1f9d55;
+      --warn: #d97706;
+      --bad: #e11d48;
+      --push: #2f7d78;
+      --pull: #d97706;
+      --accent: #38bdf8;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 18px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      user-select: none;
+    }
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 18px;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    .brand .sub {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .midi-connect-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: #101620;
+      border: 1px solid var(--border);
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #64748b;
+    }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    .dot.warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+    .dot.bad { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
+    select, button {
+      font-family: inherit;
+      font-size: 0.86rem;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: #101620;
+      color: var(--fg);
+      padding: 7px 12px;
+    }
+    select { min-width: 240px; cursor: pointer; }
+    button.btn-primary {
+      background: var(--push);
+      border-color: #3e9b95;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.btn-amber {
+      background: #b45309;
+      border-color: #d97706;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.btn-danger {
+      background: #9f1239;
+      border-color: #e11d48;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover:not(:disabled) { filter: brightness(1.12); }
+    button:disabled { opacity: 0.6; cursor: default; }
+
+    .top-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 880px) {
+      .top-grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 15px 18px;
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .card-header h2 {
+      margin: 0;
+      font-size: 0.92rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+    }
+    .bw-badge {
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--muted);
+      background: #101620;
+      padding: 3px 8px;
+      border-radius: 5px;
+      border: 1px solid var(--border);
+    }
+    .meter-group {
+      margin-bottom: 12px;
+    }
+    .meter-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.84rem;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+    .meter-label strong {
+      font-family: var(--mono);
+      color: var(--fg);
+    }
+    .bar-track {
+      height: 14px;
+      background: #0e131b;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      overflow: hidden;
+      position: relative;
+    }
+    .bar-fill {
+      height: 100%;
+      width: 70%;
+      background: linear-gradient(90deg, #2f7d78 0%, #f59e0b 65%, #ef4444 100%);
+      transition: width 0.03s linear;
+    }
+    #scope-canvas {
+      width: 100%;
+      height: 118px;
+      background: #0e131b;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      display: block;
+    }
+    #midi-log {
+      margin-top: 8px;
+      height: 74px;
+      overflow-y: auto;
+      background: #0e131b;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    /* Interactive Velocity + CC#11 Keyboard */
+    .kbd-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .kbd-instructions {
+      font-size: 0.82rem;
+      color: var(--muted);
+      background: #101620;
+      padding: 7px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .kbd-instructions strong { color: #fbbf24; }
+    .piano-scroll {
+      width: 100%;
+      overflow-x: auto;
+      padding-bottom: 6px;
+    }
+    .piano-container {
+      position: relative;
+      display: flex;
+      height: 250px;
+      min-width: 960px;
+      background: #0b0e14;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px;
+      touch-action: none;
+    }
+    .piano-key {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      border-radius: 0 0 7px 7px;
+      cursor: ns-resize;
+      overflow: hidden;
+      user-select: none;
+    }
+    .piano-key.white-key {
+      flex: 1;
+      height: 100%;
+      background: linear-gradient(180deg, #dde5f0 0%, #f8fafc 85%, #cbd5e1 100%);
+      border: 1px solid #475569;
+      margin: 0 1px;
+      color: #1e293b;
+      z-index: 1;
+      padding: 8px 2px 10px 2px;
+    }
+    .piano-key.black-key {
+      position: absolute;
+      top: 4px;
+      width: 2.25%;
+      height: 62%;
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 90%, #020617 100%);
+      border: 1px solid #334155;
+      border-top: none;
+      color: #cbd5e1;
+      z-index: 3;
+      padding: 6px 2px 8px 2px;
+      box-shadow: 0 5px 10px rgba(0, 0, 0, 0.55);
+    }
+    /* Vertical expression / velocity fill overlay inside the pressed key */
+    .key-cc-fill {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 0%;
+      background: linear-gradient(0deg, rgba(47, 125, 120, 0.72) 0%, rgba(245, 158, 11, 0.78) 70%, rgba(239, 68, 68, 0.85) 100%);
+      pointer-events: none;
+      transition: height 0.02s linear;
+      z-index: 1;
+    }
+    /* Horizontal strike line showing where initial Note-On velocity was clicked */
+    .key-vel-marker {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: #38bdf8;
+      box-shadow: 0 0 6px #38bdf8;
+      pointer-events: none;
+      display: none;
+      z-index: 2;
+    }
+    .piano-key.active .key-vel-marker {
+      display: block;
+    }
+    .piano-key.active.white-key {
+      background: #e2e8f0;
+      border-color: #f59e0b;
+    }
+    .piano-key.active.black-key {
+      background: #1e293b;
+      border-color: #f59e0b;
+    }
+    .key-top-badge {
+      position: relative;
+      z-index: 2;
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      font-weight: 700;
+      opacity: 0.65;
+      pointer-events: none;
+      text-align: center;
+    }
+    .piano-key.active .key-top-badge {
+      opacity: 1;
+      color: #0f172a;
+      background: rgba(251, 191, 36, 0.92);
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    .key-bottom-label {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      pointer-events: none;
+      line-height: 1.15;
+    }
+    .key-note-name {
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    .black-key .key-note-name {
+      font-size: 0.68rem;
+    }
+    .key-hand-tag {
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      opacity: 0.65;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="brand">
+        <h1>Bandolibre Physical Modeling Synthesizer</h1>
+        <div class="sub">WebAssembly AudioWorklet &bull; Auto-Connects to Bandolibre USB-MIDI &bull; Velocity &amp; CC#11 Interactive Keyboard</div>
+      </div>
+
+      <div class="midi-connect-bar">
+        <div class="status-pill" title="WebMIDI Device Connection Status">
+          <span id="statusDot" class="dot"></span>
+          <span id="statusText">Initializing WebMIDI…</span>
+        </div>
+        <select id="deviceSelect" aria-label="Select MIDI Device">
+          <option value="">(scanning MIDI devices…)</option>
+        </select>
+        <span id="bwIndicator" class="bw-badge" title="Raw MIDI byte throughput">0.0 kb/s</span>
+      </div>
+    </header>
+
+    <div class="top-grid">
+      <div class="card">
+        <div class="card-header">
+          <h2>Bellows Expression (CC#11) &amp; Engine Controls</h2>
+          <div style="display:flex; gap:8px;">
+            <button id="btn-start" class="btn-primary">Enable Sound</button>
+            <button id="btn-demo" class="btn-amber">Play Tango Swell</button>
+            <button id="btn-tone" class="btn-primary" style="background:#334155; border-color:#475569;" title="Play a 250ms 440Hz WebAudio reference beep to test your browser speaker output">Test Speaker Beep</button>
+            <button id="btn-panic" class="btn-danger">All Notes Off</button>
+          </div>
+        </div>
+
+        <div class="meter-group">
+          <div class="meter-label">
+            <span>Instantaneous Bellows Expression (<strong>CC#11</strong> / 14-bit <strong>CC#43</strong>)</span>
+            <strong id="cc11Readout">CC#11: 90 (71%)</strong>
+          </div>
+          <input id="cc11Slider" type="range" min="0" max="127" value="90" style="width:100%; accent-color:#f59e0b; cursor:pointer;" />
+          <div class="bar-track"><div id="cc11Bar" class="bar-fill" style="width:71%;"></div></div>
+        </div>
+
+        <div class="meter-group" style="margin-bottom:0;">
+          <div class="meter-label">
+            <span>Last Triggered Note-On Velocity (Blade Impulse)</span>
+            <strong id="velReadout">Vel: —</strong>
+          </div>
+          <div class="bar-track" style="height:10px;">
+            <div id="velBar" class="bar-fill" style="width:0%; background:linear-gradient(90deg, #38bdf8, #818cf8);"></div>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:18px; margin-top:12px; font-size:0.83rem; color:var(--muted);">
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input id="invertYToggle" type="checkbox" />
+            <span>Invert Vertical Key Axis (Top = Forte 127, Bottom = Piano 1)</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input id="sustainHoldToggle" type="checkbox" />
+            <span>Latch / Hold Notes (click multiple keys to build a chord, then drag up/down to pump bellows)</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2>Real-Time Acoustic Output &amp; MIDI Monitor</h2>
+          <span id="audioStatusBadge" class="bw-badge">Audio: Standby</span>
+        </div>
+        <canvas id="scope-canvas" width="560" height="118"></canvas>
+        <div id="midi-log"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="kbd-toolbar">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <h2 style="margin:0; font-size:0.95rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--accent);">
+            Interactive Velocity &amp; Continuous CC#11 Keyboard
+          </h2>
+          <select id="manualSelect" style="min-width:220px;">
+            <option value="split">Split Compass: Left Bajos (C2..B3) + Right Cantabile (C4..C6)</option>
+            <option value="right">Right Wing Only — Cantabile (Ch 2, C4..C6)</option>
+            <option value="left">Left Wing Only — Bajos (Ch 1, C2..B4)</option>
+          </select>
+        </div>
+        <div class="kbd-instructions">
+          <strong>Click Height</strong> sets initial <strong>Note-On Velocity</strong> &bull;
+          <strong>Hold &amp; Move Mouse Up / Down</strong> on a pressed key continuously modulates <strong>CC#11 Bellows Pressure</strong>!
+        </div>
+      </div>
+
+      <div class="piano-scroll">
+        <div id="pianoContainer" class="piano-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

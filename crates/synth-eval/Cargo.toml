@@ -1,0 +1,15 @@
+[package]
+name = "synth-eval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Autonomous evaluation, simulation, parameter tuning, and scorecard reporting harness"
+
+[dependencies]
+synth-core = { path = "../synth-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+rayon = { workspace = true }
+clap = { workspace = true }
+hound = { workspace = true }
