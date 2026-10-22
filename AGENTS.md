@@ -43,7 +43,13 @@ synth/
 ├── README.md
 ├── AGENTS.md
 ├── Cargo.toml                  # Rust workspace manifest
-├── docs/
+├── serve-web.sh                # Builds synth-wasm into docs/ and serves docs/ over HTTP
+├── docs/                       # GitHub Pages web app root + architectural documentation
+│   ├── .nojekyll               # Disables Jekyll processing on GitHub Pages
+│   ├── index.html              # Browser UI (BandoPM WebMIDI + AudioWorklet + Dual/Split keyboards)
+│   ├── app.js                  # WebMIDI, AudioWorklet host, 6-version selector, and UI logic
+│   ├── worklet-processor.js    # Real-time WebAudio AudioWorkletProcessor host
+│   ├── synth_wasm.wasm         # Compiled WASM DSP module (committed for GitHub Pages)
 │   ├── VISION.md               # Product vision, goals, and phased roadmap
 │   ├── DESIGN.md               # Detailed DSP & software architecture
 │   ├── EVALUATION.md           # Autonomous AI evaluation, scorecard, and perf gates
@@ -52,9 +58,8 @@ synth/
 │   ├── synth-core/             # Pure Rust DSP engine (voices, reed model, body filter, MIDI handler)
 │   ├── synth-wasm/             # WebAssembly bindings for AudioWorklet
 │   ├── synth-eval/             # Autonomous evaluation harness (envelope inversion, scorecard, CPU bench)
-│   ├── synth-standalone/       # (Phase 2) Linux standalone binary (cpal + midir)
+│   ├── synth-standalone/       # (Phase 2) Linux standalone binary
 │   └── synth-clap/             # (Phase 3) CLAP plugin wrapper
-├── web/                        # Browser frontend (AudioWorklet host, WebMIDI, UI telemetry)
 └── assets/
     ├── samples/
     │   └── golden/             # Train & Validation golden bandoneon WAVs (p, mf, ff, staccato, marcato)
@@ -80,3 +85,12 @@ This project is architected for **autonomous, metric-driven AI iteration** (deta
      - **Native CPU Budget**: Rendering a 128-sample quantum at `48 kHz` ($2666.7\ \mu\text{s}$ real-time window) must stay under **$350\ \mu\text{s}$ for 16 active voices** (32 coupled reeds) in native `--release` benchmarks.
 4. **Keep Documentation Synchronized**:
    - When adding or modifying physical modeling equations, evaluation metrics, MIDI mappings, or crate boundaries, update [`docs/DESIGN.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/DESIGN.md) and [`docs/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/EVALUATION.md) in the same change.
+5. **Pre-Commit WebAssembly Build Requirement (GitHub Pages in `docs/`)**:
+   - The browser application and [`docs/synth_wasm.wasm`](file:///usr/local/google/home/plabatut/projects/synth/docs/synth_wasm.wasm) are served directly from `docs/` via **GitHub Pages** and tracked in Git.
+   - **Before every `git commit`** (especially whenever `crates/synth-core`, `crates/synth-wasm`, or `assets/presets/` changes), you **MUST** rebuild and update `docs/synth_wasm.wasm`:
+     ```bash
+     cargo build --release --target wasm32-unknown-unknown -p synth-wasm
+     cp target/wasm32-unknown-unknown/release/synth_wasm.wasm docs/synth_wasm.wasm
+     git add docs/synth_wasm.wasm
+     ```
+   - Verify with `cmp -s target/wasm32-unknown-unknown/release/synth_wasm.wasm docs/synth_wasm.wasm` that `docs/synth_wasm.wasm` is byte-for-byte identical to the freshly compiled release WASM binary before committing.

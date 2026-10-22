@@ -292,7 +292,7 @@ fn run_compare_all(golden: &[CachedGoldenSample], sr: u32, out_dir: &Path) -> Re
     std::fs::create_dir_all(out_dir)?;
     let cmp_json = serde_json::to_string_pretty(&entries)?;
     std::fs::write(out_dir.join("version_comparison.json"), &cmp_json)?;
-    let web_cmp = Path::new("web/version_comparison.json");
+    let web_cmp = Path::new("docs/version_comparison.json");
     if web_cmp.parent().map(|p| p.exists()).unwrap_or(false) {
         std::fs::write(web_cmp, &cmp_json)?;
     }

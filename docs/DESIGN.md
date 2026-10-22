@@ -7,7 +7,7 @@ To satisfy the **"Browser First, Standalone & CLAP Next"** requirement without c
 ```mermaid
 flowchart TD
     subgraph Targets["Platform Hosts / Targets"]
-        Web["Browser Host (web/ + synth-wasm)\nWebMIDI + AudioWorklet + WASM"]
+        Web["Browser Host (docs/ + synth-wasm)\nWebMIDI + AudioWorklet + WASM (GitHub Pages)"]
         Linux["Linux Standalone (synth-standalone)\nmidir + cpal (ALSA / PipeWire / JACK)"]
         CLAP["DAW Plugin (synth-clap)\nCLAP via clack / nih-plug"]
         Calib["Autonomous Evaluation & Calibration (synth-eval)\nEnvelope Inversion + 5-Tier Scorecard + CPU Bench"]
@@ -54,7 +54,7 @@ flowchart TD
   }
   ```
 
-### 2.2 `crates/synth-wasm` & `web/`
+### 2.2 `crates/synth-wasm` & `docs/` (GitHub Pages Web App)
 - Exposes `SynthEngine` to JavaScript via `wasm-bindgen`.
 - Runs inside a WebAudio `AudioWorkletProcessor` (processing 128-sample blocks).
 - Main thread connects to `navigator.requestMIDIAccess()`, listens to the Bandolibre USB-MIDI device, and forwards short 3-byte MIDI messages to the `AudioWorklet` via a `SharedArrayBuffer` lock-free ring buffer (with `MessagePort` fallback when cross-origin isolation is unavailable).
