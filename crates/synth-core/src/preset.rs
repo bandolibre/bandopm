@@ -8,25 +8,45 @@ pub enum SynthVersion {
     V1Baseline = 0,
     /// v2: Rationalized Conjugate 1st-Order ADAA + 1-Pole Baffle + Coupled Celda + Dual-Box Modal EQ.
     V2AdaaBaffle = 1,
-    /// v3_aero (Direction 1): v2 + 2-Pole Dipole Baffle, Monopole dU/dt Jet Radiation & Pitch-Scaled Celda Cavity Resonance.
+    /// v3_aero (v3 Dir 1): v2 + 2-Pole Dipole Baffle & Quadrature Monopole dU/dt Jet Radiation.
     V3AeroRadiation = 2,
-    /// v3_beam (Direction 2): v2 + Asymmetric Blown-Closed Duty-Cycle ADAA & Euler-Bernoulli Clamped-Bar Overtones (4f0, 6f0).
+    /// v3_beam (v3 Dir 2): v2 + Asymmetric Blown-Closed Duty-Cycle ADAA & Euler-Bernoulli Clamped-Bar Overtones (4f0, 6f0).
     V3ClampedBar = 3,
-    /// v3_transient (Direction 3): v2 + Unclamped Tip-Mass Inertia, Bimorphic 4'/8' Hopf Onset Lag & Staccato Leakage Chiff.
+    /// v3_transient (v3 Dir 3): v2 + Unclamped Tip-Mass Inertia, Bimorphic 4'/8' Hopf Onset Lag & Staccato Leakage Chiff.
     V3TransientEntrain = 4,
-    /// v3 (Unified SOTA): Integrates Directions 1 + 2 + 3 with full multi-parameter physical calibration.
-    #[default]
+    /// v3: Unified v3 Physical Model (Integrates v3 Directions 1 + 2 + 3).
     V3Unified = 5,
+    /// v4_cabinet (v4 Dir 1): v3 + Deconvolved Wooden Cabinet 10-Mode Resonator Bank & Early-Reflection FIR.
+    V4CabinetIr = 6,
+    /// v4_slot (v4 Dir 2): v3 + 3-Regime Plate-Channel Slot Transit Geometry (Moving Formant / Vowel Swell ADAA).
+    V4SlotTransit = 7,
+    /// v4_coupled (v4 Dir 3): v3 + True 2nd-Order Coupled Mechanical Reed Integrator, Startup Chirp & Shared Celda Feedback.
+    V4CoupledOde = 8,
+    /// v4_celda (v4 Dir 4): v3 + Pitch-Scaled Individual Celda Cavity Resonator (Okada 2025).
+    V4CeldaCavity = 9,
+    /// v4_zapatilla (v4 Dir 5): v3 + Leather Pallet (Zapatilla) Release Thump & Closed-Valve Muffled Reed Ring-Down.
+    V4ZapatillaValve = 10,
+    /// v4 (Unified SOTA): Integrates all v4 physical modeling advances (Cabinet + Slot + Coupled ODE + Celda + Zapatilla + Fast-Math).
+    #[default]
+    V4Unified = 11,
 }
 
 impl SynthVersion {
-    pub const ALL: [SynthVersion; 6] = [
+    pub const COUNT: usize = 12;
+
+    pub const ALL: [SynthVersion; Self::COUNT] = [
         SynthVersion::V1Baseline,
         SynthVersion::V2AdaaBaffle,
         SynthVersion::V3AeroRadiation,
         SynthVersion::V3ClampedBar,
         SynthVersion::V3TransientEntrain,
         SynthVersion::V3Unified,
+        SynthVersion::V4CabinetIr,
+        SynthVersion::V4SlotTransit,
+        SynthVersion::V4CoupledOde,
+        SynthVersion::V4CeldaCavity,
+        SynthVersion::V4ZapatillaValve,
+        SynthVersion::V4Unified,
     ];
 
     #[inline]
@@ -37,13 +57,64 @@ impl SynthVersion {
             2 => Self::V3AeroRadiation,
             3 => Self::V3ClampedBar,
             4 => Self::V3TransientEntrain,
-            _ => Self::V3Unified,
+            5 => Self::V3Unified,
+            6 => Self::V4CabinetIr,
+            7 => Self::V4SlotTransit,
+            8 => Self::V4CoupledOde,
+            9 => Self::V4CeldaCavity,
+            10 => Self::V4ZapatillaValve,
+            _ => Self::V4Unified,
         }
     }
 
     #[inline]
     pub fn as_u8(self) -> u8 {
         self as u8
+    }
+
+    #[inline]
+    pub fn is_v4_family(self) -> bool {
+        (self as u8) >= (Self::V4CabinetIr as u8)
+    }
+
+    #[inline]
+    pub fn use_v3_aero(self) -> bool {
+        matches!(self, Self::V3AeroRadiation | Self::V3Unified) || self.is_v4_family()
+    }
+
+    #[inline]
+    pub fn use_v3_beam(self) -> bool {
+        matches!(self, Self::V3ClampedBar | Self::V3Unified) || self.is_v4_family()
+    }
+
+    #[inline]
+    pub fn use_v3_tran(self) -> bool {
+        matches!(self, Self::V3TransientEntrain | Self::V3Unified) || self.is_v4_family()
+    }
+
+    #[inline]
+    pub fn use_v4_cabinet(self) -> bool {
+        matches!(self, Self::V4CabinetIr | Self::V4Unified)
+    }
+
+    #[inline]
+    pub fn use_v4_slot(self) -> bool {
+        matches!(self, Self::V4SlotTransit | Self::V4Unified)
+    }
+
+    #[inline]
+    pub fn use_v4_coupled(self) -> bool {
+        matches!(self, Self::V4CoupledOde | Self::V4Unified)
+    }
+
+    #[inline]
+    pub fn use_v4_celda(self) -> bool {
+        matches!(self, Self::V4CeldaCavity | Self::V4Unified)
+    }
+
+    #[inline]
+    pub fn use_v4_zapatilla(self) -> bool {
+        matches!(self, Self::V4ZapatillaValve | Self::V4Unified)
     }
 
     pub fn slug(self) -> &'static str {
@@ -54,6 +125,12 @@ impl SynthVersion {
             Self::V3ClampedBar => "v3_beam",
             Self::V3TransientEntrain => "v3_transient",
             Self::V3Unified => "v3",
+            Self::V4CabinetIr => "v4_cabinet",
+            Self::V4SlotTransit => "v4_slot",
+            Self::V4CoupledOde => "v4_coupled",
+            Self::V4CeldaCavity => "v4_celda",
+            Self::V4ZapatillaValve => "v4_zapatilla",
+            Self::V4Unified => "v4",
         }
     }
 
@@ -66,7 +143,15 @@ impl SynthVersion {
             "v3_transient" | "transient" | "entrain" | "dir3" | "4" => {
                 Some(Self::V3TransientEntrain)
             }
-            "v3" | "v3_unified" | "unified" | "sota" | "5" => Some(Self::V3Unified),
+            "v3" | "v3_unified" | "5" => Some(Self::V3Unified),
+            "v4_cabinet" | "v4_cabinet_ir" | "cabinet" | "6" => Some(Self::V4CabinetIr),
+            "v4_slot" | "v4_slot_transit" | "slot" | "7" => Some(Self::V4SlotTransit),
+            "v4_coupled" | "v4_coupled_ode" | "coupled" | "8" => Some(Self::V4CoupledOde),
+            "v4_celda" | "v4_celda_cavity" | "celda" | "9" => Some(Self::V4CeldaCavity),
+            "v4_zapatilla" | "v4_zapatilla_valve" | "zapatilla" | "10" => {
+                Some(Self::V4ZapatillaValve)
+            }
+            "v4" | "v4_unified" | "unified" | "sota" | "11" => Some(Self::V4Unified),
             _ => None,
         }
     }
@@ -78,7 +163,13 @@ impl SynthVersion {
             Self::V3AeroRadiation => "v3-Aero (Dir 1): Monopole dU/dt & 2-Pole Dipole Baffle",
             Self::V3ClampedBar => "v3-Beam (Dir 2): Asymmetric Duty ADAA & Clamped-Bar Modes",
             Self::V3TransientEntrain => "v3-Transient (Dir 3): Hopf Onset Lag & Staccato Chiff",
-            Self::V3Unified => "v3: Unified SOTA Physical Model (Aero + Beam + Transient)",
+            Self::V3Unified => "v3: Unified Physical Model (Aero + Beam + Transient)",
+            Self::V4CabinetIr => "v4-Cabinet (Dir 1): Deconvolved 10-Mode Box & Early-Reflection FIR",
+            Self::V4SlotTransit => "v4-Slot (Dir 2): 3-Regime Plate-Channel Slot Transit (Vowel Swell ADAA)",
+            Self::V4CoupledOde => "v4-Coupled (Dir 3): 2nd-Order Coupled Reed ODE, Chirp & Celda Feedback",
+            Self::V4CeldaCavity => "v4-Celda (Dir 4): Pitch-Scaled Individual Celda Cavity Resonator (Okada 2025)",
+            Self::V4ZapatillaValve => "v4-Zapatilla (Dir 5): Leather Valve Thump & Closed-Chamber Muffled Ring-Down",
+            Self::V4Unified => "v4: Unified SOTA Physical Model (Cabinet + Slot + Coupled ODE + Celda + Zapatilla)",
         }
     }
 }
@@ -234,11 +325,51 @@ pub struct ManualScalingParams {
     pub staccato_4ft_boost: f32,
     /// Unpitched orifice leakage (`delta_leak`) turbulence chiff during staccato valve transients.
     pub staccato_chiff_gain: f32,
+
+    // --- v4 Direction 2 (3-Regime Plate-Channel Slot Transit & Vowel Swell ADAA) ---
+    /// 3-regime plate-channel transit pinch ADAA weight (`u / (1 + u^2)^(3/2)`).
+    pub slot_pinch_adaa: f32,
+    /// 3-regime channel transit duty-cycle notch depth on H3 and H5.
+    pub slot_channel_notch: f32,
+    /// Downstream plate emergence H4/H6 vowel swell gain as pressure rises.
+    pub slot_emergence_swell: f32,
+    /// Sub-baffle diffraction attenuation of 4' fundamental (H2) on low-compass reeds.
+    pub low_bass_h2_tame: f32,
+
+    // --- v4 Direction 3 (2nd-Order Coupled Reed Integrator, Startup Chirp & Celda Feedback) ---
+    /// 2nd-order mechanical amplitude envelope momentum / underdamped carry-through.
+    pub coupled_ode_momentum: f32,
+    /// Audio-rate 8' -> 4' shared celda acoustic pressure cross-modulation.
+    pub celda_cross_mod: f32,
+    /// Amplitude-governed 4' vs 8' Hopf onset lead during soft/gradual attacks.
+    pub hopf_onset_lead: f32,
+    /// Transient hydrodynamic added-mass startup frequency chirp in cents.
+    pub startup_chirp_cents: f32,
+
+    // --- v4 Direction 4 (Okada 2025 Pitch-Scaled Individual Celda Cavity Resonator) ---
+    /// Base individual celda cavity resonance frequency at manual bottom u=0 (Hz).
+    pub celda_cavity_hz_base: f32,
+    /// Octave scaling exponent of celda cavity frequency across u in [0, 1].
+    pub celda_cavity_oct_slope: f32,
+    /// Individual celda cavity resonator peak gain at u=0 (dB).
+    pub celda_cavity_gain_db: f32,
+    /// Slope of individual celda cavity resonator gain across u in [0, 1] (dB).
+    pub celda_cavity_gain_slope_db: f32,
+    /// Individual celda cavity resonator quality factor Q.
+    pub celda_cavity_q: f32,
+
+    // --- v4 Direction 5 (Leather Zapatilla Release Thump & Closed-Valve Muffled Ring-Down) ---
+    /// Low-pass occlusion muffling when the leather pallet valve is partially closed.
+    pub valve_occlusion_muffle: f32,
+    /// Smooth pitch slope of mechanical pallet click transmission across manual compass `u`.
+    pub pallet_click_u_slope: f32,
+    /// Leather pallet (zapatilla) closing thump & staccato valve-detachment vortex puff gain.
+    pub zapatilla_thump_gain: f32,
 }
 
 impl Default for ManualScalingParams {
     fn default() -> Self {
-        BandoneonPreset::default_bandoneon().right_cantabile
+        BandoneonPreset::v2_adaa_baffle().right_cantabile
     }
 }
 
@@ -285,6 +416,56 @@ fn default_left_body_modes() -> [BodyModeParam; 6] {
     ]
 }
 
+fn default_left_cabinet_modes() -> [BodyModeParam; 4] {
+    [
+        BodyModeParam {
+            freq_hz: 185.0,
+            q: 2.2,
+            gain_db: 0.0,
+        },
+        BodyModeParam {
+            freq_hz: 980.0,
+            q: 1.8,
+            gain_db: 0.0,
+        },
+        BodyModeParam {
+            freq_hz: 2050.0,
+            q: 1.8,
+            gain_db: 0.0,
+        },
+        BodyModeParam {
+            freq_hz: 6400.0,
+            q: 1.2,
+            gain_db: 0.0,
+        },
+    ]
+}
+
+fn default_right_cabinet_modes() -> [BodyModeParam; 4] {
+    [
+        BodyModeParam {
+            freq_hz: 370.0,
+            q: 2.0,
+            gain_db: 0.0,
+        },
+        BodyModeParam {
+            freq_hz: 1120.0,
+            q: 1.8,
+            gain_db: 0.0,
+        },
+        BodyModeParam {
+            freq_hz: 2020.0,
+            q: 1.6,
+            gain_db: 0.0,
+        },
+        BodyModeParam {
+            freq_hz: 3450.0,
+            q: 1.5,
+            gain_db: 0.0,
+        },
+    ]
+}
+
 /// Complete serializable physical modeling preset for the Bandoneon synthesizer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BandoneonPreset {
@@ -323,6 +504,22 @@ pub struct BandoneonPreset {
     #[serde(default = "default_left_body_modes")]
     pub left_body_modes: [BodyModeParam; 6],
 
+    /// 4-band auxiliary deconvolved cabinet modal bank for the Left Hand (Bajos) bass box (`v4_cabinet` & `v4`).
+    #[serde(default = "default_left_cabinet_modes")]
+    pub left_cabinet_modes: [BodyModeParam; 4],
+
+    /// 4-band auxiliary deconvolved cabinet modal bank for the Right Hand (Cantabile) grill (`v4_cabinet` & `v4`).
+    #[serde(default = "default_right_cabinet_modes")]
+    pub right_cabinet_modes: [BodyModeParam; 4],
+
+    /// Deconvolved wooden box early-reflection comb mix for Left Hand (Bajos) (`v4_cabinet` & `v4`).
+    #[serde(default)]
+    pub cabinet_ir_mix_left: f32,
+
+    /// Deconvolved wooden box early-reflection comb mix for Right Hand (Cantabile) (`v4_cabinet` & `v4`).
+    #[serde(default)]
+    pub cabinet_ir_mix_right: f32,
+
     /// Optional bounded per-semitone brightness trim offsets (61 semitones: MIDI 36..=96),
     /// heavily regularized by the second-difference smoothness penalty `L_reg`.
     pub pitch_brightness_trim: Vec<f32>,
@@ -350,6 +547,13 @@ pub struct ResolvedReedParams {
     pub clamped_bar_h6_gain: f32,
     pub h3_notch_inject: f32,
     pub hopf_knee: f32,
+    // --- v4 per-reed resolved parameters ---
+    pub slot_pinch_adaa: f32,
+    pub slot_channel_notch: f32,
+    pub slot_emergence_swell: f32,
+    pub coupled_ode_momentum: f32,
+    pub startup_chirp_cents: f32,
+    pub valve_occlusion_muffle: f32,
 }
 
 /// Resolved physical parameters for a single note (computed smoothly from `BandoneonPreset`).
@@ -365,6 +569,14 @@ pub struct ResolvedNoteParams {
     pub air_noise_scale: f32,
     pub staccato_4ft_boost: f32,
     pub staccato_chiff_gain: f32,
+    // --- v4 per-note resolved parameters ---
+    pub celda_cross_mod: f32,
+    pub hopf_onset_lead: f32,
+    pub celda_a1: f32,
+    pub celda_a2: f32,
+    pub celda_a3: f32,
+    pub celda_gain: f32,
+    pub zapatilla_thump_gain: f32,
 }
 
 impl BandoneonPreset {
@@ -377,6 +589,12 @@ impl BandoneonPreset {
             SynthVersion::V3ClampedBar => Self::v3_clamped_bar(),
             SynthVersion::V3TransientEntrain => Self::v3_transient_entrain(),
             SynthVersion::V3Unified => Self::v3_unified(),
+            SynthVersion::V4CabinetIr => Self::v4_cabinet_ir(),
+            SynthVersion::V4SlotTransit => Self::v4_slot_transit(),
+            SynthVersion::V4CoupledOde => Self::v4_coupled_ode(),
+            SynthVersion::V4CeldaCavity => Self::v4_celda_cavity(),
+            SynthVersion::V4ZapatillaValve => Self::v4_zapatilla_valve(),
+            SynthVersion::V4Unified => Self::v4_unified(),
         }
     }
 
@@ -448,6 +666,22 @@ impl BandoneonPreset {
                 hopf_8ft_knee: 0.0,
                 staccato_4ft_boost: 0.0,
                 staccato_chiff_gain: 0.0,
+                slot_pinch_adaa: 0.0,
+                slot_channel_notch: 0.0,
+                slot_emergence_swell: 0.0,
+                low_bass_h2_tame: 0.0,
+                coupled_ode_momentum: 0.0,
+                celda_cross_mod: 0.0,
+                hopf_onset_lead: 0.0,
+                startup_chirp_cents: 0.0,
+                celda_cavity_hz_base: 1150.0,
+                celda_cavity_oct_slope: 2.40,
+                celda_cavity_gain_db: 0.0,
+                celda_cavity_gain_slope_db: 0.0,
+                celda_cavity_q: 1.45,
+                valve_occlusion_muffle: 0.0,
+                pallet_click_u_slope: 0.0,
+                zapatilla_thump_gain: 0.0,
             },
             right_cantabile: ManualScalingParams {
                 p_th_8ft_base: 0.025,
@@ -485,6 +719,22 @@ impl BandoneonPreset {
                 hopf_8ft_knee: 0.0,
                 staccato_4ft_boost: 0.0,
                 staccato_chiff_gain: 0.0,
+                slot_pinch_adaa: 0.0,
+                slot_channel_notch: 0.0,
+                slot_emergence_swell: 0.0,
+                low_bass_h2_tame: 0.0,
+                coupled_ode_momentum: 0.0,
+                celda_cross_mod: 0.0,
+                hopf_onset_lead: 0.0,
+                startup_chirp_cents: 0.0,
+                celda_cavity_hz_base: 2400.0,
+                celda_cavity_oct_slope: 2.50,
+                celda_cavity_gain_db: 0.0,
+                celda_cavity_gain_slope_db: 0.0,
+                celda_cavity_q: 1.40,
+                valve_occlusion_muffle: 0.0,
+                pallet_click_u_slope: 0.0,
+                zapatilla_thump_gain: 0.0,
             },
             body_modes: [
                 BodyModeParam {
@@ -519,6 +769,10 @@ impl BandoneonPreset {
                 },
             ],
             left_body_modes: default_left_body_modes(),
+            left_cabinet_modes: default_left_cabinet_modes(),
+            right_cabinet_modes: default_right_cabinet_modes(),
+            cabinet_ir_mix_left: 0.0,
+            cabinet_ir_mix_right: 0.0,
             pitch_brightness_trim: vec![0.0; 61],
         }
     }
@@ -567,7 +821,7 @@ impl BandoneonPreset {
         p
     }
 
-    /// Unified SOTA v3 Model (`v3`): Combines Directions 1 + 2 + 3 with calibrated physical scaling laws.
+    /// Unified v3 Model (`v3`): Combines v3 Directions 1 + 2 + 3 with calibrated physical scaling laws.
     pub fn v3_unified() -> Self {
         let mut p = Self::v2_adaa_baffle();
         p.name = "Alfred Arnold (AA) Physical Model v3 (Aero dU/dt + Clamped-Bar + Hopf Entrainment)".to_string();
@@ -605,14 +859,134 @@ impl BandoneonPreset {
         p
     }
 
-    /// Creates a physically grounded default preset calibrated for an Alfred Arnold (AA) bandoneon.
-    pub fn default_bandoneon() -> Self {
-        Self::v3_unified()
+    /// v4 Direction 1 (`v4_cabinet`): Deconvolved Wooden Cabinet 10-Mode Resonator Bank & Early-Reflection FIR.
+    pub fn v4_cabinet_ir() -> Self {
+        let mut p = Self::v3_unified();
+        p.name = "Alfred Arnold (AA) v4-Cabinet (Deconvolved 10-Mode Box & Early-Reflection FIR)".to_string();
+        p.version = SynthVersion::V4CabinetIr;
+        p.left_bajos.monopole_rad_slope = 0.15968865;
+        p.right_cantabile.monopole_rad_slope = -0.22488368;
+        p.left_cabinet_modes[1].gain_db = -0.037632;
+        p.left_cabinet_modes[2].gain_db = 0.142464;
+        p.right_cabinet_modes[2].gain_db = 0.037632;
+        p
     }
 
-    /// Resolves smooth physical parameters for a given MIDI note and hand manual.
+    /// v4 Direction 2 (`v4_slot`): 3-Regime Plate-Channel Slot Transit Geometry (Moving Formant / Vowel Swell ADAA).
+    pub fn v4_slot_transit() -> Self {
+        let mut p = Self::v3_unified();
+        p.name = "Alfred Arnold (AA) v4-Slot (3-Regime Plate-Channel Slot Transit & Vowel Swell ADAA)".to_string();
+        p.version = SynthVersion::V4SlotTransit;
+        p.left_bajos.slot_sharpness_slope = -1.8576001;
+        p.left_bajos.slot_pinch_adaa = 0.01;
+        p.left_bajos.slot_channel_notch = -0.0025088002;
+        p.left_bajos.slot_emergence_swell = 0.0056;
+        p.left_bajos.low_bass_h2_tame = 0.015;
+        p
+    }
+
+    /// v4 Direction 3 (`v4_coupled`): True 2nd-Order Coupled Mechanical Reed Integrator, Startup Chirp & Shared Celda Feedback.
+    pub fn v4_coupled_ode() -> Self {
+        let mut p = Self::v3_unified();
+        p.name = "Alfred Arnold (AA) v4-Coupled (2nd-Order Coupled Reed ODE, Startup Chirp & Celda Feedback)".to_string();
+        p.version = SynthVersion::V4CoupledOde;
+        p.pallet_click_gain = 0.00226272;
+        p.left_bajos.reed_damping_base = 0.03843344;
+        p.left_bajos.pallet_click_scale = 0.16600001;
+        p.left_bajos.staccato_4ft_boost = 0.16841441;
+        p.left_bajos.staccato_chiff_gain = 1.1960725;
+        p.left_bajos.coupled_ode_momentum = 0.00672;
+        p.left_bajos.hopf_onset_lead = -0.0056447997;
+        p.left_bajos.startup_chirp_cents = 0.1568;
+        p.right_cantabile.pallet_click_scale = 0.62702465;
+        p
+    }
+
+    /// v4 Direction 4 (`v4_celda`): Pitch-Scaled Individual Celda Cavity Resonator (Okada 2025).
+    pub fn v4_celda_cavity() -> Self {
+        let mut p = Self::v3_unified();
+        p.name = "Alfred Arnold (AA) v4-Celda (Pitch-Scaled Individual Celda Cavity Resonator)".to_string();
+        p.version = SynthVersion::V4CeldaCavity;
+        p.left_bajos.celda_cavity_gain_db = 0.13042176;
+        p.left_bajos.celda_cavity_gain_slope_db = 0.042147838;
+        p.left_bajos.celda_cavity_q = 1.3492;
+        p
+    }
+
+    /// v4 Direction 5 (`v4_zapatilla`): Leather Pallet (Zapatilla) Release Thump & Closed-Valve Muffled Reed Ring-Down.
+    pub fn v4_zapatilla_valve() -> Self {
+        let mut p = Self::v3_unified();
+        p.name = "Alfred Arnold (AA) v4-Zapatilla (Leather Valve Thump & Closed-Chamber Muffled Ring-Down)".to_string();
+        p.version = SynthVersion::V4ZapatillaValve;
+        p.left_bajos.staccato_chiff_gain = 1.0639919;
+        p.left_bajos.zapatilla_thump_gain = 0.08400001;
+        p.right_cantabile.pallet_click_scale = 0.62702465;
+        p.right_cantabile.pallet_click_u_slope = 0.035;
+        p
+    }
+
+    /// Unified SOTA v4 Model (`v4`): Integrates all 5 v4 physical modeling advances with co-calibrated scaling laws.
+    pub fn v4_unified() -> Self {
+        let mut p = Self::v3_unified();
+        p.name = "Alfred Arnold (AA) Physical Model v4 (Deconvolved Cabinet + 3-Regime Slot + Coupled ODE + Celda + Zapatilla)".to_string();
+        p.version = SynthVersion::V4Unified;
+        // Direction 1 (Cabinet)
+        p.left_bajos.monopole_rad_slope = 0.15968865;
+        p.right_cantabile.monopole_rad_slope = -0.22488368;
+        p.left_cabinet_modes[1].q = 1.688;
+        p.left_cabinet_modes[1].gain_db = -0.157632;
+        p.left_cabinet_modes[2].q = 2.112;
+        p.left_cabinet_modes[2].gain_db = 0.142464;
+        p.right_cabinet_modes[2].gain_db = 0.037632;
+        // Direction 2 (Slot)
+        p.left_bajos.slot_sharpness_slope = -1.8716494;
+        p.left_bajos.slot_pinch_adaa = 0.01;
+        p.left_bajos.slot_channel_notch = -0.0025088002;
+        p.left_bajos.slot_emergence_swell = 0.0056;
+        p.left_bajos.low_bass_h2_tame = 0.015;
+        p.right_cantabile.pressure_brightness_mod = 3.0953624;
+        // Direction 3 (Coupled ODE)
+        p.pallet_click_gain = 0.00226272;
+        p.left_bajos.reed_damping_base = 0.03843344;
+        p.left_bajos.pallet_click_scale = 0.16600001;
+        p.left_bajos.staccato_4ft_boost = 0.16841441;
+        p.left_bajos.staccato_chiff_gain = 1.1960725;
+        p.left_bajos.coupled_ode_momentum = 0.018720001;
+        p.left_bajos.hopf_onset_lead = -0.0056447997;
+        p.left_bajos.startup_chirp_cents = 0.1568;
+        p.right_cantabile.pallet_click_scale = 0.62702465;
+        p.right_cantabile.staccato_chiff_gain = 0.31241378;
+        // Direction 4 (Celda Cavity)
+        p.left_bajos.celda_cavity_hz_base = 1105.0;
+        p.left_bajos.celda_cavity_gain_db = 0.13042176;
+        p.left_bajos.celda_cavity_gain_slope_db = 0.06322175;
+        p.left_bajos.celda_cavity_q = 1.3492;
+        // Direction 5 (Zapatilla Valve)
+        p.left_bajos.zapatilla_thump_gain = 0.08400001;
+        p.right_cantabile.pallet_click_u_slope = 0.04114656;
+        p
+    }
+
+    /// Creates a physically grounded default preset calibrated for an Alfred Arnold (AA) bandoneon.
+    pub fn default_bandoneon() -> Self {
+        Self::v4_unified()
+    }
+
+    /// Resolves smooth physical parameters for a given MIDI note and hand manual at 48 kHz.
     #[inline]
     pub fn resolve_note(&self, midi_note: u8, hand: Hand) -> ResolvedNoteParams {
+        self.resolve_note_at_rate(midi_note, hand, 48000.0)
+    }
+
+    /// Resolves smooth physical parameters for a given MIDI note, hand manual, and audio sample rate.
+    #[inline]
+    pub fn resolve_note_at_rate(
+        &self,
+        midi_note: u8,
+        hand: Hand,
+        sample_rate: f32,
+    ) -> ResolvedNoteParams {
+        let sr = sample_rate.max(8000.0);
         let clamped_note = midi_note.clamp(36, 96);
         // Per-manual normalized compass coordinate u in [0.0, 1.0]
         let (u, m) = match hand {
@@ -656,25 +1030,107 @@ impl BandoneonPreset {
             (m.octave_beat_hz_base + m.octave_beat_hz_slope * u).clamp(0.15, 6.0);
         let pitch_bend_cents =
             (m.pitch_bend_cents_per_pressure + m.pitch_bend_slope * u).clamp(-35.0, 35.0);
-        let pallet_click_scale = m.pallet_click_scale.clamp(0.05, 4.0);
+
+        let use_aero = self.version.use_v3_aero();
+        let use_beam = self.version.use_v3_beam();
+        let use_tran = self.version.use_v3_tran();
+        let use_slot = self.version.use_v4_slot();
+        let use_coupled = self.version.use_v4_coupled();
+        let use_celda = self.version.use_v4_celda();
+        let use_zapatilla = self.version.use_v4_zapatilla();
+
+        let click_u_mod = if use_zapatilla {
+            (1.0 + m.pallet_click_u_slope.clamp(-1.5, 1.5) * (u - 0.42)).clamp(0.25, 2.5)
+        } else {
+            1.0
+        };
+        let pallet_click_scale = (m.pallet_click_scale * click_u_mod).clamp(0.02, 4.0);
         let air_noise_scale = (m.air_noise_base + m.air_noise_slope * u).clamp(0.05, 4.0);
 
-        let monopole_rad_boost =
-            (m.monopole_rad_boost + m.monopole_rad_slope * u).clamp(-0.6, 3.5);
-        let dipole_baffle_mix = m.dipole_baffle_mix.clamp(-0.6, 1.0);
-        let duty_bias = m.duty_bias_base.clamp(-0.20, 0.85);
-        let clamped_bar_h6_gain = m.clamped_bar_h6_gain.clamp(-0.25, 0.40);
-        let h3_notch_inject = m.h3_notch_inject.clamp(-0.25, 0.40);
-        let hopf_8ft_knee = m.hopf_8ft_knee.clamp(0.0, 0.85);
-        let staccato_4ft_boost = m.staccato_4ft_boost.clamp(-0.40, 2.0);
-        let staccato_chiff_gain = m.staccato_chiff_gain.clamp(0.0, 5.0);
+        let monopole_rad_boost = if use_aero {
+            (m.monopole_rad_boost + m.monopole_rad_slope * u).clamp(-0.6, 3.5)
+        } else {
+            0.0
+        };
+        let dipole_baffle_mix = if use_aero {
+            m.dipole_baffle_mix.clamp(-0.6, 1.0)
+        } else {
+            0.0
+        };
+        let duty_bias = if use_beam {
+            m.duty_bias_base.clamp(-0.20, 0.85)
+        } else {
+            0.0
+        };
+        let clamped_bar_h6_gain = if use_beam {
+            m.clamped_bar_h6_gain.clamp(-0.25, 0.40)
+        } else {
+            0.0
+        };
+        let h3_notch_inject = if use_beam {
+            m.h3_notch_inject.clamp(-0.25, 0.40)
+        } else {
+            0.0
+        };
+        let hopf_8ft_knee = if use_tran {
+            m.hopf_8ft_knee.clamp(0.0, 0.85)
+        } else {
+            0.0
+        };
+        let staccato_4ft_boost = if use_tran {
+            m.staccato_4ft_boost.clamp(-0.40, 2.0)
+        } else {
+            0.0
+        };
+        let staccato_chiff_gain = if use_tran {
+            m.staccato_chiff_gain.clamp(0.0, 5.0)
+        } else {
+            0.0
+        };
         let pressure_brightness_mod = m.pressure_brightness_mod.clamp(0.0, 8.0);
 
-        let use_tran = matches!(
-            self.version,
-            SynthVersion::V3TransientEntrain | SynthVersion::V3Unified
-        );
+        let slot_pinch_adaa = if use_slot {
+            m.slot_pinch_adaa.clamp(-0.4, 0.8)
+        } else {
+            0.0
+        };
+        let slot_channel_notch = if use_slot {
+            m.slot_channel_notch.clamp(-0.3, 0.4) * (1.0 - 0.55 * u)
+        } else {
+            0.0
+        };
+        let slot_emergence_swell = if use_slot {
+            m.slot_emergence_swell.clamp(-0.3, 0.5) * (0.35 + 0.65 * u)
+        } else {
+            0.0
+        };
+        let low_bass_h2_tame = if use_slot {
+            m.low_bass_h2_tame.clamp(-0.4, 0.8) * (1.0 - u).powi(2)
+        } else {
+            0.0
+        };
 
+        let coupled_ode_momentum = if use_coupled {
+            m.coupled_ode_momentum.clamp(-0.4, 0.6)
+        } else {
+            0.0
+        };
+        let startup_chirp_cents = if use_coupled {
+            m.startup_chirp_cents.clamp(-15.0, 15.0)
+        } else {
+            0.0
+        };
+        let valve_occlusion_muffle = if use_zapatilla {
+            m.valve_occlusion_muffle.clamp(0.0, 0.88) * (1.0 - 0.35 * u)
+        } else {
+            0.0
+        };
+
+        let hopf_lead_eff = if use_coupled {
+            m.hopf_onset_lead.clamp(-0.5, 0.85)
+        } else {
+            0.0
+        };
         let p_ext_8ft = 0.72 * p_th_8ft;
         let reed_8ft = ResolvedReedParams {
             p_th: p_th_8ft,
@@ -689,7 +1145,7 @@ impl BandoneonPreset {
             piston_coupling,
             pitch_bend_cents,
             inertia_mult: if use_tran {
-                0.95 * (1.0 - 0.18 * hopf_8ft_knee)
+                0.95 * (1.0 - 0.18 * hopf_8ft_knee) * (1.0 - 0.25 * hopf_lead_eff).clamp(0.55, 1.35)
             } else {
                 0.95
             },
@@ -699,33 +1155,67 @@ impl BandoneonPreset {
             clamped_bar_h6_gain,
             h3_notch_inject,
             hopf_knee: if use_tran { hopf_8ft_knee } else { 0.0 },
+            slot_pinch_adaa,
+            slot_channel_notch,
+            slot_emergence_swell,
+            coupled_ode_momentum,
+            startup_chirp_cents,
+            valve_occlusion_muffle,
         };
 
         let p_ext_4ft = 0.72 * p_th_4ft;
         let dipole_4ft = dipole_baffle_mix * 0.85;
+        // On low-compass notes, `low_bass_h2_tame` raises the 4' sub-baffle diffraction cutoff
+        // (attenuating excess 2f0 H2 boom) while enriching 4' even constriction (H4, H6).
+        let baffle_4ft = baffle_cutoff_hz * (0.85 + 0.45 * low_bass_h2_tame);
+        let asym_4ft = (reed_asymmetry * (0.95 + 0.75 * low_bass_h2_tame)).clamp(0.02, 1.35);
         let reed_4ft = ResolvedReedParams {
             p_th: p_th_4ft,
             p_ext: p_ext_4ft,
             inv_one_minus_p_ext: 1.0 / (1.0 - p_ext_4ft).max(0.1),
-            reed_asymmetry: reed_asymmetry * 0.95,
-            slot_sharpness: slot_sharpness * 0.90,
+            reed_asymmetry: asym_4ft,
+            slot_sharpness: slot_sharpness * (0.90 + 0.18 * low_bass_h2_tame),
             pressure_brightness_mod: pressure_brightness_mod * 0.95,
-            baffle_cutoff_hz: baffle_cutoff_hz * 0.85,
+            baffle_cutoff_hz: baffle_4ft,
             jet_corner_hz: jet_corner_hz * 1.15,
             reed_damping: reed_damping * 1.10,
             piston_coupling: piston_coupling * 1.25,
             pitch_bend_cents: pitch_bend_cents * 0.50,
             inertia_mult: if use_tran {
-                2.05 * (1.0 + 0.15 * hopf_8ft_knee)
+                2.05 * (1.0 + 0.15 * hopf_8ft_knee) * (1.0 + 0.40 * hopf_lead_eff).clamp(0.65, 1.75)
             } else {
                 2.05
             },
             monopole_rad_boost: monopole_rad_boost * 1.15,
             dipole_baffle_mix: dipole_4ft,
             c_lin: duty_bias * 0.50,
-            clamped_bar_h6_gain: clamped_bar_h6_gain * 0.65,
+            clamped_bar_h6_gain: clamped_bar_h6_gain * (0.65 + 0.65 * low_bass_h2_tame),
             h3_notch_inject: h3_notch_inject * 0.35,
             hopf_knee: 0.0,
+            slot_pinch_adaa: slot_pinch_adaa * 0.60,
+            slot_channel_notch: slot_channel_notch * 0.30,
+            slot_emergence_swell: slot_emergence_swell * 1.15,
+            coupled_ode_momentum: coupled_ode_momentum * 1.15,
+            startup_chirp_cents: startup_chirp_cents * 0.50,
+            valve_occlusion_muffle: valve_occlusion_muffle * 0.85,
+        };
+
+        // Precompute Okada (2025) pitch-scaled individual celda cavity SVF peaking coefficients
+        let (celda_a1, celda_a2, celda_a3, celda_gain) = if use_celda {
+            let f_celda = (m.celda_cavity_hz_base
+                * 2.0f32.powf(m.celda_cavity_oct_slope.clamp(-1.0, 3.5) * u))
+            .clamp(180.0, (sr * 0.42).min(14000.0));
+            let q_celda = m.celda_cavity_q.clamp(0.6, 8.0);
+            let gain_db = (m.celda_cavity_gain_db + m.celda_cavity_gain_slope_db * u).clamp(-12.0, 12.0);
+            let g = (core::f32::consts::PI * f_celda / sr).tan().clamp(0.005, 1.2);
+            let k = 1.0 / q_celda;
+            let a1 = 1.0 / (1.0 + g * (g + k));
+            let a2 = g * a1;
+            let a3 = g * a2;
+            let lin_gain = (10.0f32.powf(gain_db / 20.0) - 1.0) * k;
+            (a1, a2, a3, lin_gain)
+        } else {
+            (0.0, 0.0, 0.0, 0.0)
         };
 
         ResolvedNoteParams {
@@ -739,6 +1229,21 @@ impl BandoneonPreset {
             air_noise_scale,
             staccato_4ft_boost,
             staccato_chiff_gain,
+            celda_cross_mod: if use_coupled {
+                m.celda_cross_mod.clamp(-0.4, 0.6)
+            } else {
+                0.0
+            },
+            hopf_onset_lead: hopf_lead_eff,
+            celda_a1,
+            celda_a2,
+            celda_a3,
+            celda_gain,
+            zapatilla_thump_gain: if use_zapatilla {
+                m.zapatilla_thump_gain.clamp(0.0, 3.0)
+            } else {
+                0.0
+            },
         }
     }
 
@@ -759,6 +1264,10 @@ impl BandoneonPreset {
         self.right_cantabile = src.right_cantabile;
         self.body_modes = src.body_modes;
         self.left_body_modes = src.left_body_modes;
+        self.left_cabinet_modes = src.left_cabinet_modes;
+        self.right_cabinet_modes = src.right_cabinet_modes;
+        self.cabinet_ir_mix_left = src.cabinet_ir_mix_left;
+        self.cabinet_ir_mix_right = src.cabinet_ir_mix_right;
         if self.pitch_brightness_trim.len() == src.pitch_brightness_trim.len() {
             self.pitch_brightness_trim
                 .copy_from_slice(&src.pitch_brightness_trim);

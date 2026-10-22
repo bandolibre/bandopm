@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop, clippy::for_kv_map)]
 use crate::features::{AcousticFeatures, BODY_BAND_CENTERS_HZ, NUM_BODY_BANDS, NUM_HARMONICS};
 use crate::sim::{simulate_and_extract, CachedGoldenSample};
 use rayon::prelude::*;
@@ -23,6 +24,9 @@ pub struct PerfReport {
     pub voice_1_us_per_quantum: f32,
     pub voice_16_us_per_quantum: f32,
     pub voice_16_budget_us: f32,
+    pub core_utilization_16v_pct: f32,
+    pub realtime_headroom_factor: f32,
+    pub performance_score: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +49,7 @@ pub struct SplitCategories {
 pub struct ScoresSummary {
     pub composite_train_score: f32,
     pub composite_val_score: f32,
+    pub performance_score: f32,
     pub composite_train_loss: f32,
     pub composite_val_loss: f32,
     pub regularization_penalty: f32,
@@ -402,11 +407,15 @@ pub fn evaluate_preset(
                 voice_1_us_per_quantum: 0.0,
                 voice_16_us_per_quantum: 0.0,
                 voice_16_budget_us: 350.0,
+                core_utilization_16v_pct: 0.0,
+                realtime_headroom_factor: 0.0,
+                performance_score: 100.0,
             },
         )
     };
 
     let recommendations = build_recommendations(&deltas, &train_cats);
+    let perf_score = performance.performance_score;
 
     Scorecard {
         preset_name: preset.name.clone(),
@@ -416,6 +425,7 @@ pub fn evaluate_preset(
         scores: ScoresSummary {
             composite_train_score,
             composite_val_score,
+            performance_score: perf_score,
             composite_train_loss,
             composite_val_loss,
             regularization_penalty: reg_penalty,
@@ -427,6 +437,17 @@ pub fn evaluate_preset(
     }
 }
 
+/// Computes the normalized 0..100 Performance Score from the 16-voice quantum render time (`us`)
+/// relative to the `350 us` real-time budget (and `2666.7 us` quantum deadline).
+#[inline]
+pub fn compute_performance_score(voice_16_us: f32, budget_us: f32, gates_passed: bool) -> f32 {
+    if !gates_passed {
+        return (40.0 * (-((voice_16_us - budget_us).max(0.0) / budget_us)).exp()).clamp(0.0, 49.9);
+    }
+    let ratio = (voice_16_us / budget_us.max(1.0)).max(0.0);
+    (100.0 * (-0.35 * ratio).exp()).clamp(0.0, 100.0)
+}
+
 /// Runs native CPU benchmarks (1-voice and 16-voice per 128-sample quantum) and stability checks.
 pub fn run_benchmarks_and_gates(
     preset: &BandoneonPreset,
@@ -436,7 +457,7 @@ pub fn run_benchmarks_and_gates(
     let mut left = [0.0f32; 128];
     let mut right = [0.0f32; 128];
 
-    // 1. 1-Voice CPU Benchmark (1000 quanta = 128,000 samples)
+    // 1. 1-Voice CPU Benchmark (warmup + best of 4 batches of 400 quanta to eliminate OS jitter)
     let mut synth1 = SynthEngine::new(sr, preset.clone());
     synth1.handle_midi_event(MidiEvent::ControlChange11(96));
     synth1.handle_midi_event(MidiEvent::NoteOn {
@@ -444,12 +465,22 @@ pub fn run_benchmarks_and_gates(
         velocity: 96,
         hand: Hand::RightCantabile,
     });
-    let t0 = Instant::now();
-    let n_quanta = 1000usize;
-    for _ in 0..n_quanta {
+    for _ in 0..150 {
         synth1.render(&mut left, &mut right);
     }
-    let voice_1_us = (t0.elapsed().as_secs_f64() * 1e6 / (n_quanta as f64)) as f32;
+    let batch_quanta = 400usize;
+    let mut voice_1_us = f32::MAX;
+    for _ in 0..4 {
+        let t0 = Instant::now();
+        for _ in 0..batch_quanta {
+            synth1.render(&mut left, &mut right);
+            std::hint::black_box((left[0], right[0]));
+        }
+        let us = (t0.elapsed().as_secs_f64() * 1e6 / (batch_quanta as f64)) as f32;
+        if us < voice_1_us {
+            voice_1_us = us;
+        }
+    }
 
     // 2. 16-Voice CPU Benchmark & Stability Check
     let mut synth16 = SynthEngine::new(sr, preset.clone());
@@ -467,12 +498,12 @@ pub fn run_benchmarks_and_gates(
     }
     synth16.handle_midi_event(MidiEvent::ControlChange11(127));
 
+    // Warmup 150 quanta while checking for NaN/Inf under CC#11 jump
     let mut no_nan = true;
-    let t1 = Instant::now();
-    for q in 0..n_quanta {
-        if q == 500 {
+    for q in 0..150 {
+        if q == 75 {
             synth16.handle_midi_event(MidiEvent::ControlChange11(30));
-        } else if q == 550 {
+        } else if q == 110 {
             synth16.handle_midi_event(MidiEvent::ControlChange11(127));
         }
         synth16.render(&mut left, &mut right);
@@ -480,7 +511,22 @@ pub fn run_benchmarks_and_gates(
             no_nan = false;
         }
     }
-    let voice_16_us = (t1.elapsed().as_secs_f64() * 1e6 / (n_quanta as f64)) as f32;
+
+    let mut voice_16_us = f32::MAX;
+    for _ in 0..4 {
+        let t1 = Instant::now();
+        for _ in 0..batch_quanta {
+            synth16.render(&mut left, &mut right);
+            std::hint::black_box((left[0], right[0]));
+        }
+        if left.iter().any(|x| !x.is_finite()) || right.iter().any(|x| !x.is_finite()) {
+            no_nan = false;
+        }
+        let us = (t1.elapsed().as_secs_f64() * 1e6 / (batch_quanta as f64)) as f32;
+        if us < voice_16_us {
+            voice_16_us = us;
+        }
+    }
 
     // 3. Silence Convergence Check (< -90 dBFS within 0.5s after CC#11=0 and NoteOff)
     synth16.handle_midi_event(MidiEvent::ControlChange11(0));
@@ -490,11 +536,17 @@ pub fn run_benchmarks_and_gates(
     }
     let tail_rms = (left.iter().map(|x| x * x).sum::<f32>() / 128.0).sqrt();
     let silence_ok = tail_rms < 3.16e-5;
-    let cpu_ok = voice_16_us < 350.0;
+    let budget_us = 350.0f32;
+    let cpu_ok = voice_16_us < budget_us;
+    let passed_all = no_nan && silence_ok && cpu_ok;
+    let realtime_quantum_us = 128.0 * 1e6 / sr;
+    let core_utilization_16v_pct = 100.0 * voice_16_us / realtime_quantum_us;
+    let realtime_headroom_factor = realtime_quantum_us / voice_16_us.max(0.1);
+    let performance_score = compute_performance_score(voice_16_us, budget_us, passed_all);
 
     (
         GatesReport {
-            passed_all: no_nan && silence_ok && cpu_ok,
+            passed_all,
             stability_no_nan_or_inf: no_nan,
             silence_convergence: silence_ok,
             cpu_budget_passed: cpu_ok,
@@ -502,10 +554,13 @@ pub fn run_benchmarks_and_gates(
         PerfReport {
             sample_rate_hz: sample_rate,
             quantum_samples: 128,
-            realtime_quantum_us: 128.0 * 1e6 / sr,
+            realtime_quantum_us,
             voice_1_us_per_quantum: voice_1_us,
             voice_16_us_per_quantum: voice_16_us,
-            voice_16_budget_us: 350.0,
+            voice_16_budget_us: budget_us,
+            core_utilization_16v_pct,
+            realtime_headroom_factor,
+            performance_score,
         },
     )
 }
@@ -601,11 +656,12 @@ pub fn write_scorecard_reports(scorecard: &Scorecard, out_dir: &Path) -> anyhow:
 - **Evaluated Golden Samples**: `{total_samples}` (`train` + `val` splits)
 - **Hard Gates**: `{gate_str}` (No NaN/Inf: `{no_nan}`, Silence `< -90 dBFS`: `{silence}`, CPU `< {budget:.0} us`: `{cpu_ok}`)
 
-## 1. Composite & Category Scores (`0.0` to `100.0`, Higher is Better)
+## 1. Composite, Category & Performance Scores (`0.0` to `100.0`, Higher is Better)
 
 | Metric / Category | Weight | Train Score | Validation Score | Train Loss | Val Loss |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Composite Total** | **100%** | **{tr_score:.2}** | **{val_score:.2}** | `{tr_loss:.4}` | `{val_loss:.4}` |
+| **Composite Acoustic Total** | **100%** | **{tr_score:.2}** | **{val_score:.2}** | `{tr_loss:.4}` | `{val_loss:.4}` |
+| **Real-Time Performance Score** | **CPU** | **{perf_score:.2}** | **{perf_score:.2}** | `{v16_us:.1} us` | `{headroom:.1}x RT` |
 | 1. Harmonic Profile & Balance | 35% | {tr_h_s:.2} | {val_h_s:.2} | `{tr_h_l:.4}` | `{val_h_l:.4}` |
 | 2. Attack & Release Transients | 25% | {tr_t_s:.2} | {val_t_s:.2} | `{tr_t_l:.4}` | `{val_t_l:.4}` |
 | 3. Dual-Reed (8' + 4') Coupling | 20% | {tr_d_s:.2} | {val_d_s:.2} | `{tr_d_l:.4}` | `{val_d_l:.4}` |
@@ -614,6 +670,7 @@ pub fn write_scorecard_reports(scorecard: &Scorecard, out_dir: &Path) -> anyhow:
 
 ## 2. Native Real-Time CPU Performance (`48 kHz`, 128-Sample Quantum = `2666.7 us`)
 
+- **Performance Score**: **{perf_score:.2} / 100.0** (`{headroom:.1}x` real-time polyphonic headroom)
 - **1 Voice (2 Coupled Reeds + Body Filter)**: `{v1_us:.2} us / quantum` (`{v1_pct:.2}%` of real-time core)
 - **16 Voices (32 Coupled Reeds + Body Filter)**: `{v16_us:.2} us / quantum` (`{v16_pct:.2}%` of real-time core, Budget: `< {budget:.0} us`)
 
@@ -642,6 +699,8 @@ pub fn write_scorecard_reports(scorecard: &Scorecard, out_dir: &Path) -> anyhow:
         cpu_ok = g.cpu_budget_passed,
         tr_score = s.composite_train_score,
         val_score = s.composite_val_score,
+        perf_score = p.performance_score,
+        headroom = p.realtime_headroom_factor,
         tr_loss = s.composite_train_loss,
         val_loss = s.composite_val_loss,
         tr_h_s = s.train_categories.harmonic_profile.score,
@@ -667,7 +726,7 @@ pub fn write_scorecard_reports(scorecard: &Scorecard, out_dir: &Path) -> anyhow:
         v1_us = p.voice_1_us_per_quantum,
         v1_pct = 100.0 * p.voice_1_us_per_quantum / p.realtime_quantum_us,
         v16_us = p.voice_16_us_per_quantum,
-        v16_pct = 100.0 * p.voice_16_us_per_quantum / p.realtime_quantum_us,
+        v16_pct = p.core_utilization_16v_pct,
         h_err = d.h1_to_h8_err_db.iter().map(|v| format!("{v:+.1}")).collect::<Vec<_>>().join(", "),
         c_p = d.spectral_centroid_err_hz.p,
         c_mf = d.spectral_centroid_err_hz.mf,

@@ -25,9 +25,23 @@ pub fn tune_preset(
     );
 
     let ver = best_preset.version;
-    let use_aero = matches!(ver, SynthVersion::V3AeroRadiation | SynthVersion::V3Unified);
-    let use_beam = matches!(ver, SynthVersion::V3ClampedBar | SynthVersion::V3Unified);
-    let use_tran = matches!(ver, SynthVersion::V3TransientEntrain | SynthVersion::V3Unified);
+    let use_aero = matches!(
+        ver,
+        SynthVersion::V3AeroRadiation | SynthVersion::V3Unified | SynthVersion::V4Unified
+    );
+    let use_beam = matches!(
+        ver,
+        SynthVersion::V3ClampedBar | SynthVersion::V3Unified | SynthVersion::V4Unified
+    );
+    let use_tran = matches!(
+        ver,
+        SynthVersion::V3TransientEntrain | SynthVersion::V3Unified | SynthVersion::V4Unified
+    );
+    let use_v4_cab = ver.use_v4_cabinet();
+    let use_v4_slot = ver.use_v4_slot();
+    let use_v4_coupled = ver.use_v4_coupled();
+    let use_v4_celda = ver.use_v4_celda();
+    let use_v4_zap = ver.use_v4_zapatilla();
 
     // Coordinate mutation closures operating on smooth physical scaling parameters
     type ParamMutator = Box<dyn Fn(&mut BandoneonPreset, f32)>;
@@ -35,8 +49,399 @@ pub fn tune_preset(
 
     let is_legacy = matches!(ver, SynthVersion::V1Baseline | SynthVersion::V2AdaaBaffle);
 
-    if use_aero || is_legacy {
-        if use_aero {
+    if use_v4_cab {
+        for i in 0..4 {
+            mutators.push((
+                format!("left_cab_gain_{i}"),
+                0.12,
+                Box::new(move |p, d| {
+                    p.left_cabinet_modes[i].gain_db =
+                        (p.left_cabinet_modes[i].gain_db + d).clamp(-15.0, 15.0)
+                }),
+            ));
+            mutators.push((
+                format!("right_cab_gain_{i}"),
+                0.12,
+                Box::new(move |p, d| {
+                    p.right_cabinet_modes[i].gain_db =
+                        (p.right_cabinet_modes[i].gain_db + d).clamp(-15.0, 15.0)
+                }),
+            ));
+            mutators.push((
+                format!("left_cab_q_{i}"),
+                0.20,
+                Box::new(move |p, d| {
+                    p.left_cabinet_modes[i].q = (p.left_cabinet_modes[i].q + d).clamp(0.7, 12.0)
+                }),
+            ));
+            mutators.push((
+                format!("right_cab_q_{i}"),
+                0.20,
+                Box::new(move |p, d| {
+                    p.right_cabinet_modes[i].q = (p.right_cabinet_modes[i].q + d).clamp(0.7, 12.0)
+                }),
+            ));
+        }
+        mutators.push((
+            "cabinet_ir_mix_left".into(),
+            0.006,
+            Box::new(|p, d| p.cabinet_ir_mix_left = (p.cabinet_ir_mix_left + d).clamp(-0.30, 0.30)),
+        ));
+        mutators.push((
+            "cabinet_ir_mix_right".into(),
+            0.006,
+            Box::new(|p, d| {
+                p.cabinet_ir_mix_right = (p.cabinet_ir_mix_right + d).clamp(-0.30, 0.30)
+            }),
+        ));
+        for i in 0..6 {
+            mutators.push((
+                format!("body_mode_{i}"),
+                0.16,
+                Box::new(move |p, d| {
+                    p.body_modes[i].gain_db = (p.body_modes[i].gain_db + d).clamp(-15.0, 15.0)
+                }),
+            ));
+            mutators.push((
+                format!("left_body_{i}"),
+                0.16,
+                Box::new(move |p, d| {
+                    p.left_body_modes[i].gain_db =
+                        (p.left_body_modes[i].gain_db + d).clamp(-15.0, 15.0)
+                }),
+            ));
+        }
+    }
+
+    if use_v4_slot {
+        let slot_muts: Vec<(String, f32, ParamMutator)> = vec![
+            (
+                "left.slot_pinch_adaa".into(),
+                0.010,
+                Box::new(|p, d| {
+                    p.left_bajos.slot_pinch_adaa =
+                        (p.left_bajos.slot_pinch_adaa + d).clamp(-0.35, 0.75)
+                }),
+            ),
+            (
+                "left.slot_channel_notch".into(),
+                0.008,
+                Box::new(|p, d| {
+                    p.left_bajos.slot_channel_notch =
+                        (p.left_bajos.slot_channel_notch + d).clamp(-0.25, 0.38)
+                }),
+            ),
+            (
+                "left.slot_emergence_swell".into(),
+                0.010,
+                Box::new(|p, d| {
+                    p.left_bajos.slot_emergence_swell =
+                        (p.left_bajos.slot_emergence_swell + d).clamp(-0.25, 0.45)
+                }),
+            ),
+            (
+                "left.low_bass_h2_tame".into(),
+                0.015,
+                Box::new(|p, d| {
+                    p.left_bajos.low_bass_h2_tame =
+                        (p.left_bajos.low_bass_h2_tame + d).clamp(-0.35, 0.75)
+                }),
+            ),
+            (
+                "right.slot_pinch_adaa".into(),
+                0.010,
+                Box::new(|p, d| {
+                    p.right_cantabile.slot_pinch_adaa =
+                        (p.right_cantabile.slot_pinch_adaa + d).clamp(-0.35, 0.75)
+                }),
+            ),
+            (
+                "right.slot_channel_notch".into(),
+                0.008,
+                Box::new(|p, d| {
+                    p.right_cantabile.slot_channel_notch =
+                        (p.right_cantabile.slot_channel_notch + d).clamp(-0.25, 0.38)
+                }),
+            ),
+            (
+                "right.slot_emergence_swell".into(),
+                0.010,
+                Box::new(|p, d| {
+                    p.right_cantabile.slot_emergence_swell =
+                        (p.right_cantabile.slot_emergence_swell + d).clamp(-0.25, 0.45)
+                }),
+            ),
+            (
+                "right.low_bass_h2_tame".into(),
+                0.015,
+                Box::new(|p, d| {
+                    p.right_cantabile.low_bass_h2_tame =
+                        (p.right_cantabile.low_bass_h2_tame + d).clamp(-0.35, 0.75)
+                }),
+            ),
+        ];
+        mutators.extend(slot_muts);
+    }
+
+    if use_v4_coupled {
+        let coupled_muts: Vec<(String, f32, ParamMutator)> = vec![
+            (
+                "left.coupled_ode_momentum".into(),
+                0.012,
+                Box::new(|p, d| {
+                    p.left_bajos.coupled_ode_momentum =
+                        (p.left_bajos.coupled_ode_momentum + d).clamp(-0.35, 0.55)
+                }),
+            ),
+            (
+                "left.startup_chirp_cents".into(),
+                0.28,
+                Box::new(|p, d| {
+                    p.left_bajos.startup_chirp_cents =
+                        (p.left_bajos.startup_chirp_cents + d).clamp(-12.0, 12.0)
+                }),
+            ),
+            (
+                "left.celda_cross_mod".into(),
+                0.010,
+                Box::new(|p, d| {
+                    p.left_bajos.celda_cross_mod =
+                        (p.left_bajos.celda_cross_mod + d).clamp(-0.30, 0.30)
+                }),
+            ),
+            (
+                "left.hopf_onset_lead".into(),
+                0.018,
+                Box::new(|p, d| {
+                    p.left_bajos.hopf_onset_lead =
+                        (p.left_bajos.hopf_onset_lead + d).clamp(-0.45, 0.85)
+                }),
+            ),
+            (
+                "right.coupled_ode_momentum".into(),
+                0.012,
+                Box::new(|p, d| {
+                    p.right_cantabile.coupled_ode_momentum =
+                        (p.right_cantabile.coupled_ode_momentum + d).clamp(-0.35, 0.55)
+                }),
+            ),
+            (
+                "right.startup_chirp_cents".into(),
+                0.28,
+                Box::new(|p, d| {
+                    p.right_cantabile.startup_chirp_cents =
+                        (p.right_cantabile.startup_chirp_cents + d).clamp(-12.0, 12.0)
+                }),
+            ),
+            (
+                "right.celda_cross_mod".into(),
+                0.010,
+                Box::new(|p, d| {
+                    p.right_cantabile.celda_cross_mod =
+                        (p.right_cantabile.celda_cross_mod + d).clamp(-0.30, 0.30)
+                }),
+            ),
+            (
+                "right.hopf_onset_lead".into(),
+                0.018,
+                Box::new(|p, d| {
+                    p.right_cantabile.hopf_onset_lead =
+                        (p.right_cantabile.hopf_onset_lead + d).clamp(-0.45, 0.85)
+                }),
+            ),
+        ];
+        mutators.extend(coupled_muts);
+    }
+
+    if use_v4_celda {
+        let celda_muts: Vec<(String, f32, ParamMutator)> = vec![
+            (
+                "left.celda_cavity_gain_db".into(),
+                0.12,
+                Box::new(|p, d| {
+                    p.left_bajos.celda_cavity_gain_db =
+                        (p.left_bajos.celda_cavity_gain_db + d).clamp(-10.0, 10.0)
+                }),
+            ),
+            (
+                "left.celda_cavity_gain_slope_db".into(),
+                0.12,
+                Box::new(|p, d| {
+                    p.left_bajos.celda_cavity_gain_slope_db =
+                        (p.left_bajos.celda_cavity_gain_slope_db + d).clamp(-10.0, 10.0)
+                }),
+            ),
+            (
+                "right.celda_cavity_gain_db".into(),
+                0.12,
+                Box::new(|p, d| {
+                    p.right_cantabile.celda_cavity_gain_db =
+                        (p.right_cantabile.celda_cavity_gain_db + d).clamp(-10.0, 10.0)
+                }),
+            ),
+            (
+                "right.celda_cavity_gain_slope_db".into(),
+                0.12,
+                Box::new(|p, d| {
+                    p.right_cantabile.celda_cavity_gain_slope_db =
+                        (p.right_cantabile.celda_cavity_gain_slope_db + d).clamp(-10.0, 10.0)
+                }),
+            ),
+            (
+                "left.celda_cavity_hz_base".into(),
+                45.0,
+                Box::new(|p, d| {
+                    p.left_bajos.celda_cavity_hz_base =
+                        (p.left_bajos.celda_cavity_hz_base + d).clamp(250.0, 4500.0)
+                }),
+            ),
+            (
+                "left.celda_cavity_oct_slope".into(),
+                0.08,
+                Box::new(|p, d| {
+                    p.left_bajos.celda_cavity_oct_slope =
+                        (p.left_bajos.celda_cavity_oct_slope + d).clamp(-0.8, 2.8)
+                }),
+            ),
+            (
+                "left.celda_cavity_q".into(),
+                0.18,
+                Box::new(|p, d| {
+                    p.left_bajos.celda_cavity_q =
+                        (p.left_bajos.celda_cavity_q + d).clamp(0.7, 6.0)
+                }),
+            ),
+            (
+                "right.celda_cavity_hz_base".into(),
+                65.0,
+                Box::new(|p, d| {
+                    p.right_cantabile.celda_cavity_hz_base =
+                        (p.right_cantabile.celda_cavity_hz_base + d).clamp(500.0, 8000.0)
+                }),
+            ),
+            (
+                "right.celda_cavity_oct_slope".into(),
+                0.08,
+                Box::new(|p, d| {
+                    p.right_cantabile.celda_cavity_oct_slope =
+                        (p.right_cantabile.celda_cavity_oct_slope + d).clamp(-0.8, 2.8)
+                }),
+            ),
+            (
+                "right.celda_cavity_q".into(),
+                0.18,
+                Box::new(|p, d| {
+                    p.right_cantabile.celda_cavity_q =
+                        (p.right_cantabile.celda_cavity_q + d).clamp(0.7, 6.0)
+                }),
+            ),
+        ];
+        mutators.extend(celda_muts);
+    }
+
+    if use_v4_zap {
+        let zap_muts: Vec<(String, f32, ParamMutator)> = vec![
+            (
+                "left.valve_occlusion_muffle".into(),
+                0.025,
+                Box::new(|p, d| {
+                    p.left_bajos.valve_occlusion_muffle =
+                        (p.left_bajos.valve_occlusion_muffle + d).clamp(0.0, 0.85)
+                }),
+            ),
+            (
+                "left.pallet_click_u_slope".into(),
+                0.035,
+                Box::new(|p, d| {
+                    p.left_bajos.pallet_click_u_slope =
+                        (p.left_bajos.pallet_click_u_slope + d).clamp(-1.4, 1.4)
+                }),
+            ),
+            (
+                "left.zapatilla_thump_gain".into(),
+                0.15,
+                Box::new(|p, d| {
+                    p.left_bajos.zapatilla_thump_gain =
+                        (p.left_bajos.zapatilla_thump_gain + d).clamp(0.0, 2.5)
+                }),
+            ),
+            (
+                "right.valve_occlusion_muffle".into(),
+                0.025,
+                Box::new(|p, d| {
+                    p.right_cantabile.valve_occlusion_muffle =
+                        (p.right_cantabile.valve_occlusion_muffle + d).clamp(0.0, 0.85)
+                }),
+            ),
+            (
+                "right.pallet_click_u_slope".into(),
+                0.035,
+                Box::new(|p, d| {
+                    p.right_cantabile.pallet_click_u_slope =
+                        (p.right_cantabile.pallet_click_u_slope + d).clamp(-1.4, 1.4)
+                }),
+            ),
+            (
+                "right.zapatilla_thump_gain".into(),
+                0.15,
+                Box::new(|p, d| {
+                    p.right_cantabile.zapatilla_thump_gain =
+                        (p.right_cantabile.zapatilla_thump_gain + d).clamp(0.0, 2.5)
+                }),
+            ),
+            (
+                "pallet_click_gain".into(),
+                0.0002,
+                Box::new(|p, d| p.pallet_click_gain = (p.pallet_click_gain + d).clamp(0.0004, 0.15)),
+            ),
+            (
+                "left.pallet_click_scale".into(),
+                0.025,
+                Box::new(|p, d| {
+                    p.left_bajos.pallet_click_scale =
+                        (p.left_bajos.pallet_click_scale + d).clamp(0.05, 2.5)
+                }),
+            ),
+            (
+                "right.pallet_click_scale".into(),
+                0.04,
+                Box::new(|p, d| {
+                    p.right_cantabile.pallet_click_scale =
+                        (p.right_cantabile.pallet_click_scale + d).clamp(0.05, 2.5)
+                }),
+            ),
+            (
+                "valve_open_ms".into(),
+                0.25,
+                Box::new(|p, d| p.valve_open_ms = (p.valve_open_ms + d).clamp(1.0, 35.0)),
+            ),
+            (
+                "bellows_attack_ms".into(),
+                0.25,
+                Box::new(|p, d| p.bellows_attack_ms = (p.bellows_attack_ms + d).clamp(0.5, 30.0)),
+            ),
+            (
+                "left.staccato_chiff_gain".into(),
+                0.15,
+                Box::new(|p, d| {
+                    p.left_bajos.staccato_chiff_gain =
+                        (p.left_bajos.staccato_chiff_gain + d).clamp(0.0, 4.5)
+                }),
+            ),
+            (
+                "right.staccato_chiff_gain".into(),
+                0.15,
+                Box::new(|p, d| {
+                    p.right_cantabile.staccato_chiff_gain =
+                        (p.right_cantabile.staccato_chiff_gain + d).clamp(0.0, 4.5)
+                }),
+            ),
+        ];
+        mutators.extend(zap_muts);
+    }
+
+    if use_aero || is_legacy || use_v4_cab {
+        if use_aero || use_v4_cab {
             let aero_muts: Vec<(String, f32, ParamMutator)> = vec![
                 (
                     "left.monopole_rad_boost".into(),
@@ -106,22 +511,24 @@ pub fn tune_preset(
         ];
         mutators.extend(aero_coupled);
 
-        for i in 0..6 {
-            mutators.push((
-                format!("body_mode_{i}"),
-                0.5,
-                Box::new(move |p, d| p.body_modes[i].gain_db = (p.body_modes[i].gain_db + d).clamp(-15.0, 15.0)),
-            ));
-            mutators.push((
-                format!("left_body_{i}"),
-                0.5,
-                Box::new(move |p, d| p.left_body_modes[i].gain_db = (p.left_body_modes[i].gain_db + d).clamp(-15.0, 15.0)),
-            ));
+        if !use_v4_cab {
+            for i in 0..6 {
+                mutators.push((
+                    format!("body_mode_{i}"),
+                    0.5,
+                    Box::new(move |p, d| p.body_modes[i].gain_db = (p.body_modes[i].gain_db + d).clamp(-15.0, 15.0)),
+                ));
+                mutators.push((
+                    format!("left_body_{i}"),
+                    0.5,
+                    Box::new(move |p, d| p.left_body_modes[i].gain_db = (p.left_body_modes[i].gain_db + d).clamp(-15.0, 15.0)),
+                ));
+            }
         }
     }
 
-    if use_beam || is_legacy {
-        if use_beam {
+    if use_beam || is_legacy || use_v4_slot || use_v4_celda {
+        if use_beam || use_v4_slot {
             let beam_muts: Vec<(String, f32, ParamMutator)> = vec![
                 (
                     "left.duty_bias_base".into(),
@@ -212,8 +619,8 @@ pub fn tune_preset(
         mutators.extend(beam_coupled);
     }
 
-    if use_tran || is_legacy {
-        if use_tran {
+    if use_tran || is_legacy || use_v4_coupled {
+        if use_tran || use_v4_coupled {
             let tran_muts: Vec<(String, f32, ParamMutator)> = vec![
                 (
                     "left.hopf_8ft_knee".into(),
@@ -401,40 +808,57 @@ pub fn tune_preset(
 
     for round in 0..rounds {
         let mut improved_in_round = false;
-        let step_scale = 0.62f32.powi(round as i32);
+        let step_scale = 0.56f32.powi(round as i32);
 
         for (name, base_step, mutate) in &mut mutators {
             let step = *base_step * step_scale;
             for dir in [1.0f32, -1.0f32] {
-                let mut cand = best_preset.clone();
-                mutate(&mut cand, dir * step);
-                let card = evaluate_preset(&cand, golden_samples, sample_rate, false);
+                let mut moved_dir = false;
+                for _sub in 0..3 {
+                    let mut cand = best_preset.clone();
+                    mutate(&mut cand, dir * step);
+                    let card = evaluate_preset(&cand, golden_samples, sample_rate, false);
 
-                // Accept only if train loss improves AND validation loss does not regress
-                let train_better =
-                    card.scores.composite_train_loss + 2e-6 < best_card.scores.composite_train_loss;
-                let val_ok =
-                    card.scores.composite_val_loss <= best_card.scores.composite_val_loss;
+                    // Accept only if neither Train nor Val regresses and at least one strictly improves
+                    let train_better =
+                        card.scores.composite_train_loss < best_card.scores.composite_train_loss;
+                    let val_better =
+                        card.scores.composite_val_loss < best_card.scores.composite_val_loss;
+                    let train_ok =
+                        card.scores.composite_train_loss <= best_card.scores.composite_train_loss;
+                    let val_ok =
+                        card.scores.composite_val_loss <= best_card.scores.composite_val_loss;
 
-                if train_better && val_ok {
-                    best_preset = cand;
-                    best_card = card;
-                    improved_in_round = true;
-                    println!(
-                        "  [Round {}] {:28} ({:+.4}) -> Train: {:.2}, Val: {:.2}",
-                        round + 1,
-                        name,
-                        dir * step,
-                        best_card.scores.composite_train_score,
-                        best_card.scores.composite_val_score
-                    );
+                    if (train_better && val_ok) || (val_better && train_ok) {
+                        best_preset = cand;
+                        best_card = card;
+                        improved_in_round = true;
+                        moved_dir = true;
+                        println!(
+                            "  [Round {}] {:28} ({:+.4}) -> Train: {:.2} ({:.5}), Val: {:.2} ({:.5})",
+                            round + 1,
+                            name,
+                            dir * step,
+                            best_card.scores.composite_train_score,
+                            best_card.scores.composite_train_loss,
+                            best_card.scores.composite_val_score,
+                            best_card.scores.composite_val_loss,
+                        );
+                    } else {
+                        break;
+                    }
+                }
+                if moved_dir {
                     break;
                 }
             }
         }
         if !improved_in_round {
-            println!("  [Round {}] Pattern search converged.", round + 1);
-            break;
+            println!(
+                "  [Round {}] No move at scale {:.2}, refining step size...",
+                round + 1,
+                step_scale
+            );
         }
     }
 

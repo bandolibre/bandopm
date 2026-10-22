@@ -178,42 +178,55 @@ The acoustic pressure radiated by the reeds passes through two physically distin
 
 ---
 
-### 4.5 Multi-Version Synthesis Architecture (`SynthVersion`: `v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`)
-To support rigorous scientific ablation studies and live interactive A/B comparison in the browser (`web/`), `synth-core` implements a first-class multi-version synthesis engine (`SynthVersion` in [`crates/synth-core/src/preset.rs`](file:///usr/local/google/home/plabatut/projects/synth/crates/synth-core/src/preset.rs)) with 6 selectable models:
+### 4.5 Multi-Version Synthesis Architecture (`SynthVersion`: `v1`..`v4`, 12 Selectable Models)
+To support rigorous scientific ablation studies and live interactive A/B comparison in the browser (`docs/`), `synth-core` implements a first-class multi-version synthesis engine (`SynthVersion` in [`crates/synth-core/src/preset.rs`](file:///usr/local/google/home/plabatut/projects/synth/crates/synth-core/src/preset.rs)) with **12 selectable models (`0..=11`)**:
 
-1. **`v1` (`V1Baseline`)**: Initial baseline lumped odd-clipper model ($u/\sqrt{1+u^2}$ without ADAA, 1-pole low-pass, single shared 6-mode body filter).
-2. **`v2` (`V2AdaaBaffle`)**: Previous SOTA baseline combining rationalized conjugate 1st-order ADAA, two-sided Millot-Baumann slot constriction, Cottingham harmonic bloom, 1-pole finite-baffle high-pass diffraction, coupled $8'+4'$ *celda* impedance, and dual-manual wooden box modal banks (`65.87` Train / `64.25` Val).
-3. **`v3_aero` (`V3AeroRadiation`, Investigation Direction 1 — Quadrature Monopole $\frac{dU}{dt}$ Jet Radiation & 2-Pole Sub-Baffle Dipole Diffraction)**:
+1. **`v1` (`V1Baseline`, ID `0`)**: Initial baseline lumped odd-clipper model ($u/\sqrt{1+u^2}$ without ADAA, 1-pole low-pass, single shared 6-mode body filter; `61.95` Train / `60.32` Val / `86.21` Perf).
+2. **`v2` (`V2AdaaBaffle`, ID `1`)**: Second-generation baseline combining rationalized conjugate 1st-order ADAA, two-sided Millot-Baumann slot constriction, Cottingham harmonic bloom, 1-pole finite-baffle high-pass diffraction, coupled $8'+4'$ *celda* impedance, and dual-manual wooden box modal banks (`65.87` Train / `64.25` Val / `78.07` Perf).
+3. **`v3_aero` (`V3AeroRadiation`, ID `2` — Quadrature Monopole $\frac{dU}{dt}$ Jet Radiation & 2-Pole Sub-Baffle Dipole Diffraction)**:
    - Grounded in *Ricot et al. (JASA 2005)* and *Puranik & Scavone (DAFx 2022)*.
    - Models the high-frequency acoustic radiation from the reed slot and *celda* aperture as a superposition of 2nd-order sub-baffle dipole volume-flow radiation $U_{\text{lp2}}(t)$ (`baffle_hp1 - dipole_baffle_mix * baffle_lp_state2`) and its band-limited time derivative (monopole volume acceleration):
      $$P_{\text{rad}}(t) = U_{\text{lp2}}(t) + \gamma_{\text{mono}}(u) \cdot (0.78 + 0.44 \Delta P_{\text{eff}}) \cdot \underbrace{\left(U_{\text{lp1}}(t) - U_{\text{lp2}}(t)\right)}_{\propto \, dU/dt \text{ (90}^\circ\text{ quadrature)}}$$
-   - Because $\frac{\omega_c^2}{(s+\omega_c)^2}$ (`lp_state2`) and $\frac{s\omega_c}{(s+\omega_c)^2}$ (`lp_state - lp_state2`) are strictly orthogonal ($90^\circ$ out of phase at all frequencies), $\gamma_{\text{mono}}(u)$ shapes upper-harmonic brightness across the manual compass without first-order cancellation of the fundamental $H_1$ (`65.92` Train / `64.45` Val).
-4. **`v3_beam` (`V3ClampedBar`, Investigation Direction 2 — Zero-Sum Barycentric Poiseuille-Bernoulli Slot Softening & Clamped-Bar Flexural Modes)**:
+   - Because $\frac{\omega_c^2}{(s+\omega_c)^2}$ (`lp_state2`) and $\frac{s\omega_c}{(s+\omega_c)^2}$ (`lp_state - lp_state2`) are strictly orthogonal ($90^\circ$ out of phase at all frequencies), $\gamma_{\text{mono}}(u)$ shapes upper-harmonic brightness across the manual compass without first-order cancellation of the fundamental $H_1$ (`65.92` Train / `64.45` Val / `76.32` Perf).
+4. **`v3_beam` (`V3ClampedBar`, ID `3` — Zero-Sum Barycentric Poiseuille-Bernoulli Slot Softening & Clamped-Bar Flexural Modes)**:
    - Grounded in *Millot & Baumann (2007)* and *Puranik & Scavone (Forum Acusticum 2023)*.
-   - Models viscous Poiseuille boundary-layer friction inside the narrow rectangular reed-plate channel (`duty_bias_base` / `c_lin`) and pressure-driven blown-closed duty sharpening (`h3_notch_inject * (effective_p - 0.38)`), alongside a zero-sum barycentric 2nd Euler-Bernoulli clamped-bar flexural mode ($\omega_2 \approx 6\,\omega_1$, `clamped_bar_h6_gain`) computed via Chebyshev recurrences (`s3_skew`, `s6_raw`) with zero additional trig calls (`65.90` Train / `64.31` Val).
-5. **`v3_transient` (`V3TransientEntrain`, Investigation Direction 3 — Low-Bass *Lastre* Inertia, Bimorphic $8'/4'$ Hopf Onset Lag & Post-Click Staccato Chiff)**:
+   - Models viscous Poiseuille boundary-layer friction inside the narrow rectangular reed-plate channel (`duty_bias_base` / `c_lin`) and pressure-driven blown-closed duty sharpening (`h3_notch_inject * (effective_p - 0.38)`), alongside a zero-sum barycentric 2nd Euler-Bernoulli clamped-bar flexural mode ($\omega_2 \approx 6\,\omega_1$, `clamped_bar_h6_gain`) computed via Chebyshev recurrences (`s3_skew`, `s6_raw`) with zero additional trig calls (`65.90` Train / `64.31` Val / `74.04` Perf).
+5. **`v3_transient` (`V3TransientEntrain`, ID `4` — Low-Bass *Lastre* Inertia, Bimorphic $8'/4'$ Hopf Onset Lag & Post-Click Staccato Chiff)**:
    - Grounded in *Ramos et al. (CMJ 2023)* and *Cottingham (2001–2013)*.
-   - Models the tip-weight (*lastre*) mechanical startup inertia on low-bass *Bajos* reeds ($f < 118\text{ Hz}$, `C0..A#0`), complementary $8'/4'$ Hopf onset lag (`hopf_8ft_knee`) during the initial $16\text{ ms}$ attack window, velocity-coupled $4'$ octave bite (`staccato_4ft_boost`), and post-click ($t > 17.5\text{ ms}$) staccato vortex-detachment leakage chiff (`staccato_chiff_gain`) (`65.92` Train / `64.31` Val).
-6. **`v3` (`V3Unified`, Default SOTA Physical Model)**:
-   - Combines all three validated physical modeling directions (`v3_aero` + `v3_beam` + `v3_transient`) with joint multi-parameter coordinate calibration across the 328-recording Alfred Arnold dataset (`66.05` Train / `64.57` Val).
+   - Models the tip-weight (*lastre*) mechanical startup inertia on low-bass *Bajos* reeds ($f < 118\text{ Hz}$, `C0..A#0`), complementary $8'/4'$ Hopf onset lag (`hopf_8ft_knee`) during the initial $16\text{ ms}$ attack window, velocity-coupled $4'$ octave bite (`staccato_4ft_boost`), and post-click ($t > 17.5\text{ ms}$) staccato vortex-detachment leakage chiff (`staccato_chiff_gain`) (`65.91` Train / `64.31` Val / `77.64` Perf).
+6. **`v3` (`V3Unified`, ID `5` — Third-Generation Unified Physical Model)**:
+   - Combines `v3_aero` + `v3_beam` + `v3_transient` with joint multi-parameter coordinate calibration across the 328-recording Alfred Arnold dataset (`66.05` Train / `64.57` Val / `73.38` Perf).
+7. **`v4_cabinet` (`V4CabinetIr`, ID `6` — v4 Direction 1: Deconvolved 10-Mode Wooden Cabinet Bank & Early-Reflection FIR)**:
+   - Expands each manual's wooden *cabezal* enclosure from 6 to **10 biquad peaking stages** (`left_cabinet_modes` at `185, 980, 2050, 6400 Hz`; `right_cabinet_modes` at `370, 1120, 2020, 3450 Hz`) plus a 32-sample circular early-reflection delay line (`cabinet_ir_mix_left` / `cabinet_ir_mix_right`) modeling internal soundboard/baffle wood reflections (`66.06` Train / `64.58` Val / `72.61` Perf).
+8. **`v4_slot` (`V4SlotTransit`, ID `7` — v4 Direction 2: 3-Regime Plate-Channel Slot Transit & Vowel Swell ADAA)**:
+   - Models the finite zinc/aluminum reed-plate channel thickness $h_{\text{plate}}$ via steady-state bloom-gated ($b_{\text{bloom}}^4$) channel-notch $H_3$ shaping (`slot_channel_notch`), orifice-pinch $H_5$ ADAA (`slot_pinch_adaa`), dynamic vowel-swell clamped-bar modulation (`slot_emergence_swell`), and low-compass $4'$ sub-baffle $H_2$ boom taming (`low_bass_h2_tame`) (`66.07` Train / `64.58` Val / `72.72` Perf).
+9. **`v4_coupled` (`V4CoupledOde`, ID `8` — v4 Direction 3: 2nd-Order Coupled Reed ODE, Startup Chirp & Shared *Celda* Feedback)**:
+   - Adds 2nd-order mechanical amplitude envelope momentum (`coupled_ode_momentum`), hydrodynamic added-mass startup pitch chirp (`startup_chirp_cents`), amplitude-governed bimorphic $4'/8'$ Hopf onset lead (`hopf_onset_lead`), and audio-rate $8' \to 4'$ shared *celda* orifice jet cross-modulation (`celda_cross_mod`) (`66.05` Train / `64.58` Val / `72.69` Perf).
+10. **`v4_celda` (`V4CeldaCavity`, ID `9` — v4 Direction 4: Pitch-Scaled Individual *Celda* Cavity Resonator, *Okada 2025*)**:
+    - Embeds a per-voice Cytomic trapezoidal 2-pole SVF bandpass resonator (`celda_a1, celda_a2, celda_a3, celda_gain`) whose Helmholtz/quarter-wave frequency $f_{\text{celda}}(u) = f_{\text{base}} \cdot 2^{\alpha_{\text{oct}} u}$ scales smoothly with normalized manual pitch $u \in [0, 1]$ (`66.05` Train / `64.57` Val / `72.49` Perf).
+11. **`v4_zapatilla` (`V4ZapatillaValve`, ID `10` — v4 Direction 5: Leather Pallet *Zapatilla* Thump & Closed-Valve Muffled Ring-Down)**:
+    - Models pitch-scaled pallet click transmission across wooden soundboard ribs (`pallet_click_u_slope`), low-frequency leather pallet seating thump (`zapatilla_thump_gain`) and resting-gap Bernoulli chiff, and closed-valve acoustic occlusion low-pass muffling (`valve_occlusion_muffle`) during valve opening and closing transients (`66.05` Train / `64.57` Val / `72.74` Perf).
+12. **`v4` (`V4Unified`, ID `11` — Default Unified SOTA Physical Model)**:
+    - Integrates all 5 `v4` physical modeling directions (`v4_cabinet` + `v4_slot` + `v4_coupled` + `v4_celda` + `v4_zapatilla`) with co-calibrated smooth scaling laws across the 328-recording Alfred Arnold dataset, achieving **`66.07` Train / `64.60` Held-Out Validation / `71.91` Performance Score** (`329.7 us` for 16 active voices = 32 coupled reeds).
 
-To guarantee real-time audio safety and $< 350\ \mu\text{s}$ 16-voice CPU performance:
-- Per-reed physical parameters (`reed_8ft` and `reed_4ft` of type `ResolvedReedParams`) are pre-resolved at `NoteOn` and preset refresh, eliminating per-sample `if is_4ft` branches and divisions from `FreeReed::tick`.
-- In `synth-wasm`, all 6 `BandoneonPreset` instances are pre-allocated at `synth_create` initialization time; calling `synth_set_version` on the WebAudio `AudioWorklet` thread invokes `SynthEngine::apply_preset_ref(&preset)`, copying scalar parameters and refreshing active voices in-place with **zero heap allocations**.
+To guarantee real-time audio safety and $< 350\ \mu\text{s}$ 16-voice CPU performance across all 12 versions:
+- **Branchless Minimax `fast_sin_cos` & Single-Division ADAA**: `FreeReed::tick` replaces hardware libm `sin_cos()` with a 100% branchless triangle-folded 7th-degree minimax polynomial (`< 1.8e-6` max error) and folds all three rational orifice denominators (`d1`, `d2`, `d3`) into a single common-denominator reciprocal `inv_all = 1.0 / (d1 * d2 * d3)`.
+- **Pre-Resolved Per-Note Parameters**: Per-reed and per-voice physical parameters (`ResolvedReedParams`, `ResolvedNoteParams`) are pre-resolved at `NoteOn` and preset refresh, eliminating per-sample `if is_4ft` branches and SVF coefficient `tan()` calls from the audio loop.
+- **Zero-Allocation Live Version Switching**: In `synth-wasm`, all 12 `BandoneonPreset` instances are pre-allocated at `synth_create` initialization time; calling `synth_set_version(0..=11)` on the WebAudio `AudioWorklet` thread invokes `SynthEngine::apply_preset_ref(&preset)`, copying scalar parameters and refreshing active voices in-place with **zero heap allocations**.
 
 ---
 
 ## 5. Autonomous Evaluation & Sample Calibration (`synth-eval`)
 
-The repository uses a **Single-Loop Autonomous AI Evaluation Architecture** (fully specified in [`docs/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/EVALUATION.md)) where `synth-eval` compares `synth-core` against golden bandoneon recordings (`p`, `mf`, `ff` steady dynamics and `staccato` / `marcato` attacks):
+The repository uses a **Single-Loop Autonomous AI Evaluation Architecture** (fully specified in [`reference_doc/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/EVALUATION.md)) where `synth-eval` compares `synth-core` against golden bandoneon recordings (`p`, `mf`, `ff` steady dynamics and `staccato` / `marcato` attacks):
 
 ```mermaid
 flowchart LR
     Samples["Golden Bandoneon WAVs\n(Train & Validation Splits:\np, mf, ff, staccato, marcato)"] --> Inv["Envelope Inversion\n(Extract RMS(t) -> Synthetic CC#11(t) & Vel)"]
     Inv --> SynthCore["synth-core\n(Headless Render + Native CPU Bench)"]
-    Samples --> Scorecard["Multi-Tier Scorecard\n(5 Acoustic Sub-Scores +\nSigned Physical Deltas + CPU Gate)"]
+    Samples --> Scorecard["Multi-Tier Scorecard\n(5 Acoustic Sub-Scores +\nPerf Score + Signed Deltas + Gates)"]
     SynthCore --> Scorecard
     Scorecard --> AI["Single-Loop AI Iteration\n(Edits DSP Code & Smooth Pitch Scaling Laws)"]
 ```
 
-See [`docs/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/EVALUATION.md) for the exact mathematical definitions of the 5-tier loss hierarchy, signed physical error deltas, smooth pitch-scaling regularization ($L_{\text{reg}}$), native CPU performance gates, and the 6-version synthesis comparison table.
+See [`reference_doc/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/EVALUATION.md) for the exact mathematical definitions of the 5-tier loss hierarchy, the `0..100` Performance Score (`performance_score`), signed physical error deltas, smooth pitch-scaling regularization ($L_{\text{reg}}$), native CPU performance gates, and the 12-version synthesis comparison table.

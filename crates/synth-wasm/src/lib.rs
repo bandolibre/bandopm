@@ -4,22 +4,16 @@ use synth_core::{BandoneonPreset, KeyboardMode, MidiEvent, SynthEngine, SynthVer
 
 pub struct WasmSynthContext {
     engine: SynthEngine,
-    presets: [BandoneonPreset; 6],
+    presets: [BandoneonPreset; SynthVersion::COUNT],
     left_buf: [f32; 128],
     right_buf: [f32; 128],
 }
 
 #[no_mangle]
 pub extern "C" fn synth_create(sample_rate: f32) -> *mut WasmSynthContext {
-    let presets = [
-        BandoneonPreset::v1_baseline(),
-        BandoneonPreset::v2_adaa_baffle(),
-        BandoneonPreset::v3_aero_radiation(),
-        BandoneonPreset::v3_clamped_bar(),
-        BandoneonPreset::v3_transient_entrain(),
-        BandoneonPreset::v3_unified(),
-    ];
-    let preset = presets[5].clone();
+    let presets: [BandoneonPreset; SynthVersion::COUNT] =
+        core::array::from_fn(|i| BandoneonPreset::for_version(SynthVersion::from_u8(i as u8)));
+    let preset = presets[SynthVersion::V4Unified as usize].clone();
     let ctx = Box::new(WasmSynthContext {
         engine: SynthEngine::new(sample_rate, preset),
         presets,
@@ -61,7 +55,7 @@ pub unsafe extern "C" fn synth_set_table_mode(ctx: *mut WasmSynthContext, enable
     }
 }
 
-/// Switches the active synthesis model version (`0..=5`) without heap allocation on the audio thread.
+/// Switches the active synthesis model version (`0..=11`) without heap allocation on the audio thread.
 ///
 /// # Safety
 /// `ctx` must be a valid pointer returned by `synth_create`.
@@ -69,12 +63,12 @@ pub unsafe extern "C" fn synth_set_table_mode(ctx: *mut WasmSynthContext, enable
 pub unsafe extern "C" fn synth_set_version(ctx: *mut WasmSynthContext, version_id: u8) {
     if let Some(c) = ctx.as_mut() {
         let ver = SynthVersion::from_u8(version_id);
-        let idx = (ver as usize).min(5);
+        let idx = (ver as usize).min(SynthVersion::COUNT - 1);
         c.engine.apply_preset_ref(&c.presets[idx]);
     }
 }
 
-/// Returns the active synthesis model version ID (`0..=5`).
+/// Returns the active synthesis model version ID (`0..=11`).
 ///
 /// # Safety
 /// `ctx` must be a valid pointer returned by `synth_create`.
@@ -83,7 +77,7 @@ pub unsafe extern "C" fn synth_get_version(ctx: *const WasmSynthContext) -> u8 {
     if let Some(c) = ctx.as_ref() {
         c.engine.version().as_u8()
     } else {
-        SynthVersion::V3Unified.as_u8()
+        SynthVersion::V4Unified.as_u8()
     }
 }
 
@@ -146,4 +140,40 @@ pub unsafe extern "C" fn synth_left_buffer_ptr(ctx: *const WasmSynthContext) -> 
 #[no_mangle]
 pub unsafe extern "C" fn synth_right_buffer_ptr(ctx: *const WasmSynthContext) -> *const f32 {
     (*ctx).right_buf.as_ptr()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_wasm_c_abi_all_12_versions_and_bounds() {
+        unsafe {
+            let ctx = synth_create(48000.0);
+            assert!(!ctx.is_null());
+            assert_eq!(synth_get_version(ctx), 11); // Default V4Unified
+
+            synth_handle_midi(ctx, 0xB0, 11, 100);
+            synth_handle_midi(ctx, 0x90, 45, 100); // A2 LeftBajos
+            synth_handle_midi(ctx, 0x91, 69, 100); // A4 RightCantabile
+
+            for vid in 0..=11u8 {
+                synth_set_version(ctx, vid);
+                assert_eq!(synth_get_version(ctx), vid);
+                synth_render_quantum(ctx);
+                let l_ptr = synth_left_buffer_ptr(ctx);
+                let r_ptr = synth_right_buffer_ptr(ctx);
+                let l_slice = core::slice::from_raw_parts(l_ptr, 128);
+                let r_slice = core::slice::from_raw_parts(r_ptr, 128);
+                assert!(l_slice.iter().all(|x| x.is_finite() && x.abs() <= 1.0));
+                assert!(r_slice.iter().all(|x| x.is_finite() && x.abs() <= 1.0));
+            }
+
+            // Out-of-bounds version ID falls back to V4Unified (11)
+            synth_set_version(ctx, 99);
+            assert_eq!(synth_get_version(ctx), 11);
+
+            synth_destroy(ctx);
+        }
+    }
 }

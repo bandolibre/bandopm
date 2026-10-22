@@ -47,7 +47,7 @@ synth/
 ├── docs/                       # GitHub Pages static web app root (website files only)
 │   ├── .nojekyll               # Disables Jekyll processing on GitHub Pages
 │   ├── index.html              # Browser UI (BandoPM WebMIDI + AudioWorklet + Dual/Split keyboards)
-│   ├── app.js                  # WebMIDI, AudioWorklet host, 6-version selector, and UI logic
+│   ├── app.js                  # WebMIDI, AudioWorklet host, 12-version selector (v1..v4), and UI logic
 │   ├── worklet-processor.js    # Real-time WebAudio AudioWorkletProcessor host
 │   └── synth_wasm.wasm         # Compiled WASM DSP module (committed for GitHub Pages)
 ├── reference_doc/              # Architectural & scientific reference documentation

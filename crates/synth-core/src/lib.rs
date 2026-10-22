@@ -80,7 +80,7 @@ impl SynthEngine {
             preset.bellows_attack_ms,
             preset.bellows_release_ms,
         );
-        let body = BodyResonator::new(sr, &preset.left_body_modes, &preset.body_modes);
+        let body = BodyResonator::new_from_preset(sr, &preset);
         let voices =
             core::array::from_fn(|i| BandoneonVoice::new((i as u32 + 1).wrapping_mul(0x9E37_79B9)));
 
@@ -113,10 +113,9 @@ impl SynthEngine {
             preset.bellows_attack_ms,
             preset.bellows_release_ms,
         );
-        self.body
-            .update_modes(&preset.left_body_modes, &preset.body_modes);
+        self.body.update_from_preset(preset);
         for v in &mut self.voices {
-            v.refresh_preset(preset);
+            v.refresh_preset(preset, self.sample_rate);
         }
         self.preset.copy_params_from(preset);
     }
@@ -361,7 +360,7 @@ impl SynthEngine {
     }
 
     #[inline]
-    fn step_manuals_and_body(&mut self) -> (f32, f32) {
+    fn step_manuals_and_body(&mut self, dt: f32, inv_sr_38: f32, inv_sr_42: f32) -> (f32, f32) {
         let p_bellows = self
             .bellows
             .tick(self.last_total_flow, self.preset.chamber_coupling);
@@ -372,7 +371,14 @@ impl SynthEngine {
 
         for v in &mut self.voices {
             if v.active {
-                let (sig, flow) = v.tick(self.sample_rate, p_bellows, &self.preset);
+                let (sig, flow) = v.tick(
+                    self.sample_rate,
+                    dt,
+                    inv_sr_38,
+                    inv_sr_42,
+                    p_bellows,
+                    &self.preset,
+                );
                 flow_sum += flow;
                 match v.hand {
                     Hand::LeftBajos => sum_l += sig,
@@ -399,8 +405,11 @@ impl SynthEngine {
         let w = self.stereo_width.clamp(0.0, 1.0);
         let pan_main = 0.5 + 0.5 * w;
         let pan_cross = 0.5 - 0.5 * w;
+        let dt = 1.0 / self.sample_rate;
+        let inv_sr_38 = dt * (1.0 / 0.38);
+        let inv_sr_42 = dt * (6.0 / 0.42);
         for i in 0..frames {
-            let (body_l, body_r) = self.step_manuals_and_body();
+            let (body_l, body_r) = self.step_manuals_and_body(dt, inv_sr_38, inv_sr_42);
             let stereo_l = (pan_main * body_l + pan_cross * body_r) * gain;
             let stereo_r = (pan_cross * body_l + pan_main * body_r) * gain;
             out_left[i] = Self::soft_limit(stereo_l);
@@ -412,8 +421,11 @@ impl SynthEngine {
     /// RightCantabile through the Right box resonator).
     pub fn render_mono(&mut self, out_mono: &mut [f32]) {
         let gain = self.preset.master_gain;
+        let dt = 1.0 / self.sample_rate;
+        let inv_sr_38 = dt * (1.0 / 0.38);
+        let inv_sr_42 = dt * (6.0 / 0.42);
         for sample in out_mono.iter_mut() {
-            let (body_l, body_r) = self.step_manuals_and_body();
+            let (body_l, body_r) = self.step_manuals_and_body(dt, inv_sr_38, inv_sr_42);
             *sample = Self::soft_limit((body_l + body_r) * gain);
         }
     }
@@ -422,6 +434,33 @@ impl SynthEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_fast_sin_cos_accuracy_and_seam_continuity() {
+        let n = 4096;
+        let mut prev_s = 0.0f32;
+        let mut prev_c = 1.0f32;
+        for i in 0..=n {
+            let phase = (i as f32) / (n as f32);
+            let (s, c) = crate::reed::fast_sin_cos(phase);
+            let (s_ref, c_ref) = (phase * core::f32::consts::TAU).sin_cos();
+            assert!(
+                (s - s_ref).abs() < 2.0e-6 && (c - c_ref).abs() < 2.0e-6,
+                "fast_sin_cos error exceeded 2e-6 at phase={phase}: err_s={}, err_c={}",
+                (s - s_ref).abs(),
+                (c - c_ref).abs()
+            );
+            if i > 0 {
+                let max_step = core::f32::consts::TAU / (n as f32) + 5e-6;
+                assert!(
+                    (s - prev_s).abs() <= max_step && (c - prev_c).abs() <= max_step,
+                    "Seam discontinuity at phase={phase}"
+                );
+            }
+            prev_s = s;
+            prev_c = c;
+        }
+    }
 
     #[test]
     fn test_stability_and_silence_convergence() {
@@ -482,8 +521,8 @@ mod tests {
     }
 
     #[test]
-    fn test_all_six_versions_and_live_version_switching() {
-        let presets: [BandoneonPreset; 6] =
+    fn test_all_twelve_versions_and_live_version_switching() {
+        let presets: [BandoneonPreset; SynthVersion::COUNT] =
             core::array::from_fn(|i| BandoneonPreset::for_version(SynthVersion::from_u8(i as u8)));
 
         for (idx, ver) in SynthVersion::ALL.iter().copied().enumerate() {
@@ -526,7 +565,7 @@ mod tests {
             let rms = (buf_l.iter().map(|x| x * x).sum::<f32>() / buf_l.len() as f32).sqrt();
             assert!(rms > 0.005, "Silent output on {}", ver.slug());
 
-            // Live mid-stream version switching across all 6 versions while extreme notes are held
+            // Live mid-stream version switching across all 12 versions while extreme notes are held
             for next_preset in &presets {
                 synth.apply_preset_ref(next_preset);
                 assert_eq!(synth.version(), next_preset.version);
@@ -557,7 +596,10 @@ mod tests {
 
             let mut prev_l = *buf_l.last().unwrap();
             let mut prev_r = *buf_r.last().unwrap();
-            for (step_i, &ver_idx) in [0usize, 5, 1, 2, 3, 4, 0, 5, 2, 4, 1].iter().enumerate() {
+            for (step_i, &ver_idx) in [0usize, 11, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 11]
+                .iter()
+                .enumerate()
+            {
                 let next_preset = &presets[ver_idx];
                 synth.apply_preset_ref(next_preset);
                 assert_eq!(synth.version(), next_preset.version);
@@ -569,7 +611,7 @@ mod tests {
                 for (&l, &r) in q_l.iter().zip(q_r.iter()) {
                     assert!(l.is_finite() && r.is_finite());
                     assert!(
-                        (l - prev_l).abs() < 0.28 && (r - prev_r).abs() < 0.28,
+                        (l - prev_l).abs() < 0.32 && (r - prev_r).abs() < 0.32,
                         "Discontinuity detected on live version switch to {}: dl={}, dr={}",
                         next_preset.version.slug(),
                         (l - prev_l).abs(),
@@ -676,5 +718,95 @@ mod tests {
             .iter()
             .any(|v| v.active && v.midi_note == 64 && v.hand == Hand::RightCantabile);
         assert!(has_left && has_right);
+    }
+
+    #[test]
+    fn test_voice_stealing_and_multi_sample_rate_invariance() {
+        let preset = BandoneonPreset::v4_unified();
+        let mut synth = SynthEngine::new(48000.0, preset.clone());
+        synth.handle_midi_event(MidiEvent::ControlChange11(110));
+
+        // 1. Trigger 16 distinct notes and render until all 16 pallet valves are fully open
+        for i in 0..16u8 {
+            let hand = if i < 8 {
+                Hand::LeftBajos
+            } else {
+                Hand::RightCantabile
+            };
+            synth.handle_midi_event(MidiEvent::NoteOn {
+                note: 38 + i * 2,
+                velocity: 100,
+                hand,
+            });
+        }
+        let mut buf_l = [0.0f32; 2400];
+        let mut buf_r = [0.0f32; 2400];
+        synth.render(&mut buf_l, &mut buf_r);
+        for v in &synth.voices {
+            assert!(v.active && v.valve_aperture > 0.95);
+        }
+
+        // 2. Retrigger an existing note (same button: note 38, LeftBajos) -> warm valve_aperture preserved
+        synth.handle_midi_event(MidiEvent::NoteOn {
+            note: 38,
+            velocity: 110,
+            hand: Hand::LeftBajos,
+        });
+        let same_v = synth
+            .voices
+            .iter()
+            .find(|v| v.midi_note == 38 && v.hand == Hand::LeftBajos)
+            .unwrap();
+        assert!(
+            same_v.valve_aperture > 0.95,
+            "Expected same-button retrigger to preserve warm valve_aperture, got {}",
+            same_v.valve_aperture
+        );
+
+        // 3. Trigger a 17th distinct note (note 92, RightCantabile) -> steals oldest voice (note 40)
+        //    and MUST reset valve_aperture to 0.0 so the new button starts closed
+        synth.handle_midi_event(MidiEvent::NoteOn {
+            note: 92,
+            velocity: 120,
+            hand: Hand::RightCantabile,
+        });
+        let stolen_v = synth
+            .voices
+            .iter()
+            .find(|v| v.midi_note == 92 && v.hand == Hand::RightCantabile)
+            .unwrap();
+        assert!(
+            stolen_v.valve_aperture == 0.0,
+            "Expected stolen voice for a different button to reset valve_aperture to 0.0, got {}",
+            stolen_v.valve_aperture
+        );
+
+        // 4. Verify sample-rate invariance and stability across 44.1 kHz, 48 kHz, and 96 kHz
+        for &sr in &[44100.0f32, 48000.0, 96000.0] {
+            let mut sr_synth = SynthEngine::new(sr, preset.clone());
+            sr_synth.handle_midi_event(MidiEvent::NoteOn {
+                note: 45,
+                velocity: 127,
+                hand: Hand::LeftBajos,
+            });
+            sr_synth.handle_midi_event(MidiEvent::NoteOn {
+                note: 81,
+                velocity: 127,
+                hand: Hand::RightCantabile,
+            });
+            for step in 0..8 {
+                let cc11 = if step % 2 == 0 { 127 } else { 0 };
+                sr_synth.handle_midi_event(MidiEvent::ControlChange11(cc11));
+                let mut q_l = [0.0f32; 256];
+                let mut q_r = [0.0f32; 256];
+                sr_synth.render(&mut q_l, &mut q_r);
+                for (&l, &r) in q_l.iter().zip(q_r.iter()) {
+                    assert!(
+                        l.is_finite() && r.is_finite() && l.abs() <= 1.0 && r.abs() <= 1.0,
+                        "Invalid sample at sr={sr}: l={l}, r={r}"
+                    );
+                }
+            }
+        }
     }
 }

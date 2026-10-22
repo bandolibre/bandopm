@@ -245,14 +245,15 @@
       slug: "v1",
       shortTitle: "v1: Lumped Clipper",
       label: "v1 Baseline — Lumped Odd Clipper + Shared Body EQ",
-      train: 61.99,
-      val: 60.36,
-      harm: 55.11,
-      tran: 63.02,
-      dual: 54.14,
-      pitch: 82.66,
-      body: 67.65,
-      cpu16: "168.5 us",
+      train: 61.95,
+      val: 60.32,
+      perf: 86.25,
+      harm: 55.12,
+      tran: 63.05,
+      dual: 54.15,
+      pitch: 81.87,
+      body: 67.66,
+      cpu16: "148.0 us",
       physics:
         "Initial baseline: memoryless odd algebraic clipper u/sqrt(1+u²), single-pole low-pass filter, and a single shared 6-mode body resonator across both manuals (no ADAA anti-aliasing, no finite-baffle diffraction shelf).",
     },
@@ -263,14 +264,15 @@
       label: "v2 Baseline — 1st-Order ADAA + 1-Pole Baffle + Coupled Celda",
       train: 65.87,
       val: 64.25,
+      perf: 78.54,
       harm: 62.23,
       tran: 64.86,
       dual: 56.60,
       pitch: 81.87,
       body: 70.90,
-      cpu16: "247.7 us",
+      cpu16: "241.6 us",
       physics:
-        "Previous SOTA baseline: 1st-order Antiderivative Anti-Aliasing (ADAA) orifice solver, 1-pole finite wooden box baffle high-pass shelf, coupled 8'+4' celda impedance drop, and dual-manual Left/Right wooden box modal banks.",
+        "Second-generation baseline: 1st-order Antiderivative Anti-Aliasing (ADAA) orifice solver, 1-pole finite wooden box baffle high-pass shelf, coupled 8'+4' celda impedance drop, and dual-manual Left/Right wooden box modal banks.",
     },
     {
       id: 2,
@@ -279,14 +281,15 @@
       label: "v3-Aero (Dir 1) — Quadrature Monopole dU/dt Radiation & 2-Pole Dipole Baffle",
       train: 65.92,
       val: 64.45,
+      perf: 76.62,
       harm: 62.40,
       tran: 65.45,
       dual: 56.55,
       pitch: 81.87,
       body: 70.95,
-      cpu16: "270.1 us",
+      cpu16: "266.4 us",
       physics:
-        "Investigation Direction 1 (Ricot et al. 2005; Puranik & Scavone 2022): Adds quadrature band-limited monopole volume-acceleration radiation (dU/dt = lp_state1 - lp_state2, 90° orthogonal to volume flow) and 2nd-order sub-baffle dipole diffraction.",
+        "v3 Direction 1 (Ricot et al. 2005; Puranik & Scavone 2022): Adds quadrature band-limited monopole volume-acceleration radiation (dU/dt = lp_state1 - lp_state2, 90° orthogonal to volume flow) and 2nd-order sub-baffle dipole diffraction.",
     },
     {
       id: 3,
@@ -295,46 +298,151 @@
       label: "v3-Beam (Dir 2) — Poiseuille-Bernoulli Duty Softening & Clamped-Bar Modes",
       train: 65.90,
       val: 64.31,
+      perf: 75.33,
       harm: 62.28,
       tran: 65.01,
       dual: 56.64,
       pitch: 81.87,
       body: 70.92,
-      cpu16: "274.9 us",
+      cpu16: "283.3 us",
       physics:
-        "Investigation Direction 2 (Millot & Baumann 2007; Puranik & Scavone 2023): Models zero-sum barycentric Poiseuille-Bernoulli boundary-layer softening, pressure-driven H3 duty-cycle sharpening, and Euler-Bernoulli 2nd flexural clamped-bar modes (~6f0).",
+        "v3 Direction 2 (Millot & Baumann 2007; Puranik & Scavone 2023): Models zero-sum barycentric Poiseuille-Bernoulli boundary-layer softening, pressure-driven H3 duty-cycle sharpening, and Euler-Bernoulli 2nd flexural clamped-bar modes (~6f0).",
     },
     {
       id: 4,
       slug: "v3_transient",
       shortTitle: "v3-Transient: Hopf Lag",
       label: "v3-Transient (Dir 3) — Unclamped Lastre Inertia, Hopf Lag & Staccato Chiff",
-      train: 65.92,
+      train: 65.91,
       val: 64.31,
+      perf: 78.33,
       harm: 62.32,
       tran: 64.86,
       dual: 56.74,
       pitch: 81.87,
       body: 70.95,
-      cpu16: "265.4 us",
+      cpu16: "244.2 us",
       physics:
-        "Investigation Direction 3 (Ramos et al. 2023; Cottingham 2001-2013): Models low-bass tip-weight (lastre) inertia on C0..A#0, complementary 8'/4' Hopf onset lag, velocity-coupled 4' octave bite, and post-click staccato vortex detachment chiff.",
+        "v3 Direction 3 (Ramos et al. 2023; Cottingham 2001-2013): Models low-bass tip-weight (lastre) inertia on C0..A#0, complementary 8'/4' Hopf onset lag, velocity-coupled 4' octave bite, and post-click staccato vortex detachment chiff.",
     },
     {
       id: 5,
       slug: "v3",
-      shortTitle: "v3: Unified SOTA ★",
-      label: "v3 Unified SOTA — Monopole dU/dt + Clamped-Bar + Hopf Entrainment",
+      shortTitle: "v3: Unified",
+      label: "v3 Unified — Monopole dU/dt + Clamped-Bar + Hopf Entrainment",
       train: 66.05,
       val: 64.57,
+      perf: 72.54,
       harm: 62.54,
       tran: 65.50,
       dual: 56.79,
       pitch: 81.87,
       body: 71.03,
-      cpu16: "319.7 us",
+      cpu16: "321.1 us",
       physics:
-        "Unified SOTA Physical Model (Directions 1 + 2 + 3 co-calibrated): Combines quadrature monopole dU/dt jet radiation, 2nd-order sub-baffle dipole diffraction, zero-sum barycentric clamped-bar modes, low-bass lastre inertia, and Hopf onset entrainment.",
+        "Third-generation unified physical model (v3 Directions 1 + 2 + 3 co-calibrated): Combines quadrature monopole dU/dt jet radiation, 2nd-order sub-baffle dipole diffraction, zero-sum barycentric clamped-bar modes, and Hopf onset entrainment.",
+    },
+    {
+      id: 6,
+      slug: "v4_cabinet",
+      shortTitle: "v4-Cabinet: 10-Mode IR",
+      label: "v4-Cabinet (Dir 1) — Deconvolved 10-Mode Wooden Box & Early-Reflection FIR",
+      train: 66.06,
+      val: 64.58,
+      perf: 72.61,
+      harm: 62.57,
+      tran: 65.50,
+      dual: 56.79,
+      pitch: 81.87,
+      body: 71.04,
+      cpu16: "320.1 us",
+      physics:
+        "v4 Direction 1 (Deconvolved Cabinet Modal Bank + Early-Reflection FIR): Expands each manual's wooden cabezal enclosure from 6 to 10 biquad modes (185/980/2050/6400 Hz Left Bajos; 370/1120/2020/3450 Hz Right Cantabile) plus a 32-sample internal boundary reflection comb.",
+    },
+    {
+      id: 7,
+      slug: "v4_slot",
+      shortTitle: "v4-Slot: 3-Regime ADAA",
+      label: "v4-Slot (Dir 2) — 3-Regime Plate-Channel Slot Transit & Vowel Swell ADAA",
+      train: 66.07,
+      val: 64.58,
+      perf: 72.72,
+      harm: 62.56,
+      tran: 65.51,
+      dual: 56.80,
+      pitch: 81.87,
+      body: 71.04,
+      cpu16: "318.5 us",
+      physics:
+        "v4 Direction 2 (3-Regime Plate-Channel Slot Transit): Models finite zinc/aluminum reed-plate channel thickness h_plate via channel-notch H3 shaping, orifice-pinch H5 ADAA, dynamic vowel-swell clamped-bar modulation, and low-bass 4' sub-baffle H2 boom taming.",
+    },
+    {
+      id: 8,
+      slug: "v4_coupled",
+      shortTitle: "v4-Coupled: 2nd-Order ODE",
+      label: "v4-Coupled (Dir 3) — 2nd-Order Coupled Reed ODE, Startup Chirp & Celda Feedback",
+      train: 66.05,
+      val: 64.58,
+      perf: 72.69,
+      harm: 62.56,
+      tran: 65.50,
+      dual: 56.79,
+      pitch: 81.87,
+      body: 71.05,
+      cpu16: "319.0 us",
+      physics:
+        "v4 Direction 3 (2nd-Order Coupled Reed ODE & Startup Chirp): Adds 2nd-order mechanical amplitude envelope momentum during onset, hydrodynamic added-mass startup pitch chirp, amplitude-governed Hopf onset lead, and audio-rate 8'->4' shared celda cross-modulation.",
+    },
+    {
+      id: 9,
+      slug: "v4_celda",
+      shortTitle: "v4-Celda: Cavity SVF",
+      label: "v4-Celda (Dir 4) — Pitch-Scaled Individual Celda Cavity Resonator (Okada 2025)",
+      train: 66.05,
+      val: 64.57,
+      perf: 72.49,
+      harm: 62.55,
+      tran: 65.50,
+      dual: 56.79,
+      pitch: 81.87,
+      body: 71.03,
+      cpu16: "321.7 us",
+      physics:
+        "v4 Direction 4 (Okada 2025 Individual Celda Cavity Resonator): Embeds a per-voice Cytomic trapezoidal 2-pole SVF bandpass resonator whose Helmholtz/quarter-wave frequency scales smoothly with manual pitch u in [0, 1].",
+    },
+    {
+      id: 10,
+      slug: "v4_zapatilla",
+      shortTitle: "v4-Zapatilla: Valve Muffle",
+      label: "v4-Zapatilla (Dir 5) — Leather Pallet Thump & Closed-Valve Muffled Ring-Down",
+      train: 66.05,
+      val: 64.57,
+      perf: 72.74,
+      harm: 62.54,
+      tran: 65.50,
+      dual: 56.79,
+      pitch: 81.87,
+      body: 71.05,
+      cpu16: "318.3 us",
+      physics:
+        "v4 Direction 5 (Leather Zapatilla Valve Physics): Models pitch-scaled pallet click transmission across wooden soundboard ribs, leather pallet seating thump and resting-gap Bernoulli chiff, and closed-valve acoustic occlusion low-pass muffling during onset/release.",
+    },
+    {
+      id: 11,
+      slug: "v4",
+      shortTitle: "v4: Unified SOTA ★",
+      label: "v4 Unified SOTA — Cabinet IR + 3-Regime Slot + Coupled ODE + Celda + Zapatilla",
+      train: 66.07,
+      val: 64.60,
+      perf: 71.91,
+      harm: 62.60,
+      tran: 65.51,
+      dual: 56.79,
+      pitch: 81.87,
+      body: 71.09,
+      cpu16: "329.7 us",
+      physics:
+        "Unified SOTA v4 Physical Model: Co-calibrates all 5 v4 physical modeling advances (10-mode deconvolved cabinet + 3-regime slot transit + coupled ODE startup chirp + pitch-scaled celda SVF + zapatilla valve occlusion) with branchless minimax fast_sin_cos and single-division ADAA.",
     },
   ];
 
@@ -345,7 +453,7 @@
   let analyserR = null;
   let audioInitPromise = null;
   let soundReady = false;
-  let activeVersionId = 5; // Default to v3 Unified SOTA
+  let activeVersionId = 11; // Default to v4 Unified SOTA
   let currentStereoWidth = 0.84;
   let currentSplitNote = 60; // C4
 
@@ -388,13 +496,13 @@
     for (const v of SYNTH_VERSIONS) {
       const opt = document.createElement("option");
       opt.value = String(v.id);
-      opt.textContent = `${v.label} (Val: ${v.val.toFixed(2)})`;
+      opt.textContent = `${v.label} (Val: ${v.val.toFixed(2)} | Perf: ${v.perf.toFixed(1)})`;
       versionSelect.appendChild(opt);
     }
     versionSelect.value = String(activeVersionId);
 
-    // 2. Quick-select pills (ordered v3 SOTA first, then ablations, then v2/v1)
-    const displayOrder = [5, 2, 3, 4, 1, 0];
+    // 2. Quick-select pills (ordered v4 SOTA first, then v4 ablations, then v3/v2/v1)
+    const displayOrder = [11, 6, 7, 8, 9, 10, 5, 2, 3, 4, 1, 0];
     versionPills.innerHTML = "";
     for (const vid of displayOrder) {
       const v = SYNTH_VERSIONS.find((x) => x.id === vid);
@@ -407,22 +515,22 @@
           <span>${v.shortTitle}</span>
           <span class="ver-score-pill">Val ${v.val.toFixed(2)}</span>
         </div>
-        <div class="ver-btn-sub">Train ${v.train.toFixed(2)} &bull; CPU ${v.cpu16}</div>
+        <div class="ver-btn-sub">Train ${v.train.toFixed(2)} &bull; Perf ${v.perf.toFixed(1)} &bull; ${v.cpu16}</div>
       `;
       btn.addEventListener("click", () => setSynthVersion(v.id));
       versionPills.appendChild(btn);
     }
 
     // 3. Active description box
-    const cur = SYNTH_VERSIONS.find((x) => x.id === activeVersionId) || SYNTH_VERSIONS[5];
+    const cur = SYNTH_VERSIONS.find((x) => x.id === activeVersionId) || SYNTH_VERSIONS[11];
     const deltaVal = cur.val - 64.25;
     const deltaSign = deltaVal >= 0 ? `+${deltaVal.toFixed(2)}` : deltaVal.toFixed(2);
     versionDescBox.innerHTML = `
-      <div><strong>Active Engine — ${cur.label}</strong> &nbsp;|&nbsp; Train: <strong>${cur.train.toFixed(2)}</strong> &bull; Held-Out Val: <strong>${cur.val.toFixed(2)}</strong> (${deltaSign} vs v2) &bull; 16-Voice CPU: <strong>${cur.cpu16}</strong></div>
+      <div><strong>Active Engine — ${cur.label}</strong> &nbsp;|&nbsp; Train: <strong>${cur.train.toFixed(2)}</strong> &bull; Held-Out Val: <strong>${cur.val.toFixed(2)}</strong> (${deltaSign} vs v2) &bull; Perf Score: <strong>${cur.perf.toFixed(2)}/100</strong> &bull; 16-Voice CPU: <strong>${cur.cpu16}</strong></div>
       <div style="margin-top:4px; color:var(--muted);">${cur.physics}</div>
     `;
 
-    // 4. Full 6-version comparison table
+    // 4. Full 12-version comparison table
     versionTableBody.innerHTML = "";
     for (const v of SYNTH_VERSIONS) {
       const tr = document.createElement("tr");
@@ -440,6 +548,7 @@
         <td>${v.train.toFixed(2)}</td>
         <td>${v.val.toFixed(2)}</td>
         <td class="${dClass}">${dText}</td>
+        <td>${v.perf.toFixed(2)}</td>
         <td>${v.harm.toFixed(2)}</td>
         <td>${v.tran.toFixed(2)}</td>
         <td>${v.dual.toFixed(2)}</td>
@@ -464,7 +573,7 @@
     if (soundReady && audioCtx) {
       audioStatusBadge.textContent = `Audio: ${audioCtx.sampleRate} Hz WASM [${verTag}] (${audioCtx.state})`;
     }
-    logMidi(`Switched Synthesis Engine -> ${v.label} [Train ${v.train.toFixed(2)} / Val ${v.val.toFixed(2)}]`);
+    logMidi(`Switched Synthesis Engine -> ${v.label} [Train ${v.train.toFixed(2)} / Val ${v.val.toFixed(2)} / Perf ${v.perf.toFixed(2)}]`);
   }
 
   if (versionSelect) {
@@ -475,36 +584,6 @@
   }
 
   renderVersionUI();
-
-  // Auto-sync scorecard metrics from synth-eval's generated version_comparison.json if present
-  fetch("version_comparison.json", { cache: "no-store" })
-    .then((r) => (r.ok ? r.json() : null))
-    .then((entries) => {
-      if (!Array.isArray(entries)) return;
-      for (const entry of entries) {
-        const target = SYNTH_VERSIONS.find(
-          (v) => v.id === entry.version_id || v.slug === entry.slug
-        );
-        if (target && entry.scorecard && entry.scorecard.scores) {
-          const s = entry.scorecard.scores;
-          const vc = s.val_categories;
-          target.train = Number(s.composite_train_score);
-          target.val = Number(s.composite_val_score);
-          if (vc) {
-            target.harm = Number(vc.harmonic_profile.score);
-            target.tran = Number(vc.transients.score);
-            target.dual = Number(vc.dual_reed.score);
-            target.pitch = Number(vc.pitch_bend.score);
-            target.body = Number(vc.body_resonance.score);
-          }
-          if (entry.scorecard.performance) {
-            target.cpu16 = `${Number(entry.scorecard.performance.voice_16_us_per_quantum).toFixed(1)} us`;
-          }
-        }
-      }
-      renderVersionUI();
-    })
-    .catch(() => {});
 
   async function ensureAudioStarted() {
     unlockAudioSynchronously();
@@ -543,13 +622,13 @@
         node.port.onmessage = (e) => {
           if (e.data.type === "ready") {
             soundReady = true;
-            const cur = SYNTH_VERSIONS.find((x) => x.id === activeVersionId) || SYNTH_VERSIONS[5];
+            const cur = SYNTH_VERSIONS.find((x) => x.id === activeVersionId) || SYNTH_VERSIONS[11];
             audioStatusBadge.textContent = `Audio: ${e.data.sampleRate} Hz WASM [${cur.slug.toUpperCase()}] (${audioCtx.state})`;
             startBtn.textContent = "Sound Active";
             startBtn.disabled = true;
             sendMidiToWorklet(0xb0, 11, liveCcMsb);
           } else if (e.data.type === "version-changed") {
-            const cur = SYNTH_VERSIONS.find((x) => x.id === e.data.activeVersionId) || SYNTH_VERSIONS[5];
+            const cur = SYNTH_VERSIONS.find((x) => x.id === e.data.activeVersionId) || SYNTH_VERSIONS[11];
             audioStatusBadge.textContent = `Audio: ${audioCtx.sampleRate} Hz WASM [${cur.slug.toUpperCase()}] (${audioCtx.state})`;
           } else if (e.data.type === "error") {
             audioStatusBadge.textContent = `WASM Error`;
@@ -1272,7 +1351,7 @@
         { midi: 76, ch: KBD_CHANNEL.right, vel: 100 }, // E5 (Cantabile)
       ];
 
-      const order = [0, 1, 2, 3, 4, 5];
+      const order = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
       let idx = 0;
       setSynthVersion(order[idx]);
       updateCC11UI(96, 0, true);
@@ -1281,13 +1360,13 @@
         highlightKeyUI(c.midi, true, c.vel, 96, c.vel / 127, c.ch);
       }
       updateVelocityUI(104);
-      logMidi("Starting 6-Version A/B Cycle (v1 -> v2 -> v3_aero -> v3_beam -> v3_transient -> v3)…");
+      logMidi("Starting 12-Version A/B Cycle (v1 -> v2 -> v3_* -> v3 -> v4_* -> v4)…");
 
       let step = 0;
       demoInterval = setInterval(() => {
         step++;
         const t = step * 0.05;
-        const nextIdx = Math.floor(t / 1.1);
+        const nextIdx = Math.floor(t / 0.85);
         if (nextIdx < order.length) {
           if (nextIdx !== idx) {
             idx = nextIdx;
@@ -1303,7 +1382,7 @@
           updateCC11UI(90, 0, true);
           clearInterval(demoInterval);
           demoInterval = null;
-          logMidi("Completed 6-Version A/B Cycle (active: v3 Unified SOTA).");
+          logMidi("Completed 12-Version A/B Cycle (active: v4 Unified SOTA).");
         }
       }, 50);
     });

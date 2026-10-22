@@ -1,12 +1,12 @@
 {
-  "name": "Alfred Arnold (AA) Physical Model v3 (Aero dU/dt + Clamped-Bar + Hopf Entrainment)",
-  "version": "v3_unified",
+  "name": "Alfred Arnold (AA) Physical Model v4 (Deconvolved Cabinet + 3-Regime Slot + Coupled ODE + Celda + Zapatilla)",
+  "version": "v4_unified",
   "bellows_curve_gamma": 1.15,
   "bellows_attack_ms": 2.5,
   "bellows_release_ms": 7.0,
   "valve_open_ms": 3.3,
   "valve_close_ms": 10.0,
-  "pallet_click_gain": 0.0022,
+  "pallet_click_gain": 0.00226272,
   "air_turbulence_gain": 0.022507008,
   "chamber_coupling": 0.16,
   "master_gain": 0.48,
@@ -22,30 +22,46 @@
     "reed_asymmetry_base": 0.4143,
     "reed_asymmetry_slope": -0.15760513,
     "slot_sharpness_base": 6.72736,
-    "slot_sharpness_slope": -1.688,
+    "slot_sharpness_slope": -1.8716494,
     "pressure_brightness_mod": 3.517547,
     "baffle_cutoff_hz": 391.768,
     "jet_corner_base_hz": 2670.0,
     "jet_corner_slope_hz": -80.0,
-    "reed_damping_base": 0.044033438,
+    "reed_damping_base": 0.03843344,
     "reed_damping_slope": 0.04,
     "piston_coupling_base": 0.5,
     "octave_beat_hz_base": 3.598373,
     "octave_beat_hz_slope": -1.1,
     "pitch_bend_cents_per_pressure": -13.0,
     "pitch_bend_slope": 13.5,
-    "pallet_click_scale": 0.18,
+    "pallet_click_scale": 0.16600001,
     "air_noise_base": 2.0904,
     "air_noise_slope": -2.05,
     "monopole_rad_boost": 0.024799999,
-    "monopole_rad_slope": 0.152664,
+    "monopole_rad_slope": 0.15968865,
     "dipole_baffle_mix": 0.011532,
     "duty_bias_base": -0.0182,
     "clamped_bar_h6_gain": 0.0074563683,
     "h3_notch_inject": 0.008,
     "hopf_8ft_knee": 0.059720002,
-    "staccato_4ft_boost": 0.15436512,
-    "staccato_chiff_gain": 0.76399195
+    "staccato_4ft_boost": 0.16841441,
+    "staccato_chiff_gain": 1.1960725,
+    "slot_pinch_adaa": 0.01,
+    "slot_channel_notch": -0.0025088002,
+    "slot_emergence_swell": 0.0056,
+    "low_bass_h2_tame": 0.015,
+    "coupled_ode_momentum": 0.018720001,
+    "celda_cross_mod": 0.0,
+    "hopf_onset_lead": -0.0056447997,
+    "startup_chirp_cents": 0.1568,
+    "celda_cavity_hz_base": 1105.0,
+    "celda_cavity_oct_slope": 2.4,
+    "celda_cavity_gain_db": 0.13042176,
+    "celda_cavity_gain_slope_db": 0.06322175,
+    "celda_cavity_q": 1.3492,
+    "valve_occlusion_muffle": 0.0,
+    "pallet_click_u_slope": 0.0,
+    "zapatilla_thump_gain": 0.08400001
   },
   "right_cantabile": {
     "p_th_8ft_base": 0.025,
@@ -60,7 +76,7 @@
     "reed_asymmetry_slope": -0.175,
     "slot_sharpness_base": 5.418848,
     "slot_sharpness_slope": -0.888,
-    "pressure_brightness_mod": 3.1094117,
+    "pressure_brightness_mod": 3.0953624,
     "baffle_cutoff_hz": 455.0,
     "jet_corner_base_hz": 3600.0,
     "jet_corner_slope_hz": 1644.48,
@@ -71,18 +87,34 @@
     "octave_beat_hz_slope": 0.25,
     "pitch_bend_cents_per_pressure": -0.5,
     "pitch_bend_slope": 1.2,
-    "pallet_click_scale": 0.58,
+    "pallet_click_scale": 0.62702465,
     "air_noise_base": 0.8938328,
     "air_noise_slope": -0.25,
     "monopole_rad_boost": 0.0,
-    "monopole_rad_slope": -0.18993968,
+    "monopole_rad_slope": -0.22488368,
     "dipole_baffle_mix": 0.0,
     "duty_bias_base": 0.0,
     "clamped_bar_h6_gain": 0.008869968,
     "h3_notch_inject": 0.0030752001,
     "hopf_8ft_knee": 0.0,
     "staccato_4ft_boost": 0.0,
-    "staccato_chiff_gain": 0.24919201
+    "staccato_chiff_gain": 0.31241378,
+    "slot_pinch_adaa": 0.0,
+    "slot_channel_notch": 0.0,
+    "slot_emergence_swell": 0.0,
+    "low_bass_h2_tame": 0.0,
+    "coupled_ode_momentum": 0.0,
+    "celda_cross_mod": 0.0,
+    "hopf_onset_lead": 0.0,
+    "startup_chirp_cents": 0.0,
+    "celda_cavity_hz_base": 2400.0,
+    "celda_cavity_oct_slope": 2.5,
+    "celda_cavity_gain_db": 0.0,
+    "celda_cavity_gain_slope_db": 0.0,
+    "celda_cavity_q": 1.4,
+    "valve_occlusion_muffle": 0.0,
+    "pallet_click_u_slope": 0.04114656,
+    "zapatilla_thump_gain": 0.0
   },
   "body_modes": [
     {
@@ -148,6 +180,52 @@
       "gain_db": -1.0
     }
   ],
+  "left_cabinet_modes": [
+    {
+      "freq_hz": 185.0,
+      "q": 2.2,
+      "gain_db": 0.0
+    },
+    {
+      "freq_hz": 980.0,
+      "q": 1.688,
+      "gain_db": -0.157632
+    },
+    {
+      "freq_hz": 2050.0,
+      "q": 2.112,
+      "gain_db": 0.142464
+    },
+    {
+      "freq_hz": 6400.0,
+      "q": 1.2,
+      "gain_db": 0.0
+    }
+  ],
+  "right_cabinet_modes": [
+    {
+      "freq_hz": 370.0,
+      "q": 2.0,
+      "gain_db": 0.0
+    },
+    {
+      "freq_hz": 1120.0,
+      "q": 1.8,
+      "gain_db": 0.0
+    },
+    {
+      "freq_hz": 2020.0,
+      "q": 1.6,
+      "gain_db": 0.037632
+    },
+    {
+      "freq_hz": 3450.0,
+      "q": 1.5,
+      "gain_db": 0.0
+    }
+  ],
+  "cabinet_ir_mix_left": 0.0,
+  "cabinet_ir_mix_right": 0.0,
   "pitch_brightness_trim": [
     0.0,
     0.0,

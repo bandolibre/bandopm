@@ -1,3 +1,4 @@
+#![allow(clippy::approx_constant)]
 use serde::{Deserialize, Serialize};
 use std::f32::consts::TAU;
 

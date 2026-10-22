@@ -1,7 +1,7 @@
-use crate::preset::BodyModeParam;
+use crate::preset::{BandoneonPreset, BodyModeParam};
 use core::f32::consts::TAU;
 
-/// Direct Form II Transposed 2nd-order Biquad peaking EQ filter (real-time safe, denormal-protected).
+/// Direct Form II Transposed 2nd-order Biquad peaking EQ filter (real-time safe, branchless).
 #[derive(Debug, Clone, Copy)]
 struct BiquadPeaking {
     b0: f32,
@@ -62,17 +62,11 @@ impl BiquadPeaking {
         self.a2 = a2 * inv_a0;
     }
 
-    #[inline]
+    #[inline(always)]
     fn tick(&mut self, x: f32) -> f32 {
         let y = self.b0 * x + self.z1;
         self.z1 = self.b1 * x - self.a1 * y + self.z2;
         self.z2 = self.b2 * x - self.a2 * y;
-        if self.z1.abs() < 1e-15 {
-            self.z1 = 0.0;
-        }
-        if self.z2.abs() < 1e-15 {
-            self.z2 = 0.0;
-        }
         y
     }
 
@@ -84,11 +78,24 @@ impl BiquadPeaking {
 
 /// Dual-manual wooden *cabezal* (Left *Bajos* bass box and Right *Cantabile* treble box)
 /// and bellows acoustic enclosure filter bank.
+///
+/// In `v4_cabinet` and `v4`, each manual adds 4 high-Q structural modes (total 10 modes/manual)
+/// plus a 32-sample early-reflection internal wood boundary reflection network.
 #[derive(Debug, Clone)]
 pub struct BodyResonator {
     sample_rate: f32,
     left_stages: [BiquadPeaking; 6],
     right_stages: [BiquadPeaking; 6],
+    left_cab_stages: [BiquadPeaking; 4],
+    right_cab_stages: [BiquadPeaking; 4],
+    use_cabinet: bool,
+    ir_buf_l: [f32; 32],
+    ir_buf_r: [f32; 32],
+    ir_idx: usize,
+    ir_lp_l: f32,
+    ir_lp_r: f32,
+    ir_mix_l: f32,
+    ir_mix_r: f32,
     dc_prev_in_l: f32,
     dc_prev_out_l: f32,
     dc_prev_in_r: f32,
@@ -105,12 +112,28 @@ impl BodyResonator {
             sample_rate: sample_rate.max(8000.0),
             left_stages: [BiquadPeaking::identity(); 6],
             right_stages: [BiquadPeaking::identity(); 6],
+            left_cab_stages: [BiquadPeaking::identity(); 4],
+            right_cab_stages: [BiquadPeaking::identity(); 4],
+            use_cabinet: false,
+            ir_buf_l: [0.0; 32],
+            ir_buf_r: [0.0; 32],
+            ir_idx: 0,
+            ir_lp_l: 0.0,
+            ir_lp_r: 0.0,
+            ir_mix_l: 0.0,
+            ir_mix_r: 0.0,
             dc_prev_in_l: 0.0,
             dc_prev_out_l: 0.0,
             dc_prev_in_r: 0.0,
             dc_prev_out_r: 0.0,
         };
         body.update_modes(left_modes, right_modes);
+        body
+    }
+
+    pub fn new_from_preset(sample_rate: f32, preset: &BandoneonPreset) -> Self {
+        let mut body = Self::new(sample_rate, &preset.left_body_modes, &preset.body_modes);
+        body.update_from_preset(preset);
         body
     }
 
@@ -127,6 +150,26 @@ impl BodyResonator {
         }
     }
 
+    pub fn update_from_preset(&mut self, preset: &BandoneonPreset) {
+        self.update_modes(&preset.left_body_modes, &preset.body_modes);
+        self.use_cabinet = preset.version.use_v4_cabinet();
+        for i in 0..4 {
+            let ml = &preset.left_cabinet_modes[i];
+            let mr = &preset.right_cabinet_modes[i];
+            let gl = if self.use_cabinet { ml.gain_db } else { 0.0 };
+            let gr = if self.use_cabinet { mr.gain_db } else { 0.0 };
+            self.left_cab_stages[i].configure(self.sample_rate, ml.freq_hz, ml.q, gl);
+            self.right_cab_stages[i].configure(self.sample_rate, mr.freq_hz, mr.q, gr);
+        }
+        if self.use_cabinet {
+            self.ir_mix_l = preset.cabinet_ir_mix_left.clamp(-0.35, 0.35);
+            self.ir_mix_r = preset.cabinet_ir_mix_right.clamp(-0.35, 0.35);
+        } else {
+            self.ir_mix_l = 0.0;
+            self.ir_mix_r = 0.0;
+        }
+    }
+
     pub fn reset(&mut self) {
         for s in &mut self.left_stages {
             s.reset_state();
@@ -134,6 +177,17 @@ impl BodyResonator {
         for s in &mut self.right_stages {
             s.reset_state();
         }
+        for s in &mut self.left_cab_stages {
+            s.reset_state();
+        }
+        for s in &mut self.right_cab_stages {
+            s.reset_state();
+        }
+        self.ir_buf_l = [0.0; 32];
+        self.ir_buf_r = [0.0; 32];
+        self.ir_idx = 0;
+        self.ir_lp_l = 0.0;
+        self.ir_lp_r = 0.0;
         self.dc_prev_in_l = 0.0;
         self.dc_prev_out_l = 0.0;
         self.dc_prev_in_r = 0.0;
@@ -141,14 +195,48 @@ impl BodyResonator {
     }
 
     /// Processes Left (*Bajos*) and Right (*Cantabile*) manual signals through their respective
-    /// wooden body resonators and DC blockers.
-    #[inline]
+    /// wooden body resonators, optional `v4_cabinet` deconvolved modal stages + early reflections,
+    /// and output DC blockers.
+    #[inline(always)]
     pub fn tick_stereo(&mut self, mut l: f32, mut r: f32) -> (f32, f32) {
+        // Inject tiny DC anti-denormal offset (+1e-20, -400 dBFS) so recursive biquad states
+        // never flush to slow hardware subnormals; removed at the end by the high-pass DC blocker.
+        l += 1e-20;
+        r += 1e-20;
+
+        if self.use_cabinet {
+            let idx = self.ir_idx & 31;
+            // Compute internal wooden cabezal early reflections (13, 23, 31 samples for Left Bajos box;
+            // 9, 19, 29 samples for Right Cantabile box + metal grill)
+            let tap_l = 0.55 * self.ir_buf_l[idx.wrapping_sub(13) & 31]
+                - 0.35 * self.ir_buf_l[idx.wrapping_sub(23) & 31]
+                + 0.25 * self.ir_buf_l[idx.wrapping_sub(31) & 31];
+            let tap_r = 0.55 * self.ir_buf_r[idx.wrapping_sub(9) & 31]
+                - 0.35 * self.ir_buf_r[idx.wrapping_sub(19) & 31]
+                + 0.25 * self.ir_buf_r[idx.wrapping_sub(29) & 31];
+            self.ir_lp_l += 0.38 * (tap_l - self.ir_lp_l);
+            self.ir_lp_r += 0.46 * (tap_r - self.ir_lp_r);
+            self.ir_buf_l[idx] = l;
+            self.ir_buf_r[idx] = r;
+            self.ir_idx = (idx + 1) & 31;
+            l += self.ir_mix_l * self.ir_lp_l;
+            r += self.ir_mix_r * self.ir_lp_r;
+        }
+
         for stage in &mut self.left_stages {
             l = stage.tick(l);
         }
         for stage in &mut self.right_stages {
             r = stage.tick(r);
+        }
+
+        if self.use_cabinet {
+            for stage in &mut self.left_cab_stages {
+                l = stage.tick(l);
+            }
+            for stage in &mut self.right_cab_stages {
+                r = stage.tick(r);
+            }
         }
 
         // High-pass DC blocker (~15 Hz at 48 kHz)
@@ -164,3 +252,4 @@ impl BodyResonator {
         (self.dc_prev_out_l, self.dc_prev_out_r)
     }
 }
+

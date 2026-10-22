@@ -31,7 +31,7 @@ struct Cli {
     #[arg(long, default_value = "assets/presets/default_bandoneon.json")]
     preset: PathBuf,
 
-    /// Optional synthesis version override (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`)
+    /// Optional synthesis version override (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`, `v4_cabinet`, `v4_slot`, `v4_coupled`, `v4_celda`, `v4_zapatilla`, `v4`)
     #[arg(long)]
     version: Option<String>,
 
@@ -65,7 +65,7 @@ enum Commands {
     },
     /// Print detailed per-hand, per-dynamic, and per-pitch-band physical diagnostics
     Diagnose,
-    /// Evaluate and compare all 6 synthesis versions (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`)
+    /// Evaluate and compare all 12 synthesis versions (`v1`..`v4`)
     Compare,
 }
 
@@ -79,8 +79,12 @@ pub struct VersionComparisonEntry {
 
 fn load_or_create_preset(path: &Path, version_override: Option<&str>) -> Result<BandoneonPreset> {
     if let Some(v_str) = version_override {
-        let ver = SynthVersion::from_slug(v_str)
-            .with_context(|| format!("Unknown synthesis version '{}'. Expected one of: v1, v2, v3_aero, v3_beam, v3_transient, v3", v_str))?;
+        let ver = SynthVersion::from_slug(v_str).with_context(|| {
+            format!(
+                "Unknown synthesis version '{}'. Expected one of: v1, v2, v3_aero, v3_beam, v3_transient, v3, v4_cabinet, v4_slot, v4_coupled, v4_celda, v4_zapatilla, v4",
+                v_str
+            )
+        })?;
         return Ok(BandoneonPreset::for_version(ver));
     }
     if path.exists() {
@@ -173,6 +177,10 @@ fn print_summary(card: &scorecard::Scorecard, out_dir: &Path) {
         s.composite_train_score, s.composite_val_score
     );
     println!(
+        " Performance     : Score = {:6.2} / 100.0  |  Headroom   = {:5.1}x real-time",
+        p.performance_score, p.realtime_headroom_factor
+    );
+    println!(
         " Composite Loss  : Train = {:6.4}          |  Validation = {:6.4} (Reg: {:.4})",
         s.composite_train_loss, s.composite_val_loss, s.regularization_penalty
     );
@@ -220,10 +228,11 @@ fn print_summary(card: &scorecard::Scorecard, out_dir: &Path) {
         100.0 * p.voice_1_us_per_quantum / p.realtime_quantum_us
     );
     println!(
-        "   - 16 Voices : {:6.2} us ({:4.2}% core, budget < {:.0} us) | Gates Passed: {}",
+        "   - 16 Voices : {:6.2} us ({:4.2}% core, budget < {:.0} us) | Perf Score: {:5.2} | Gates: {}",
         p.voice_16_us_per_quantum,
-        100.0 * p.voice_16_us_per_quantum / p.realtime_quantum_us,
+        p.core_utilization_16v_pct,
         p.voice_16_budget_us,
+        p.performance_score,
         card.gates.passed_all
     );
     println!("-------------------------------------------------------------------------");
@@ -240,38 +249,27 @@ fn print_summary(card: &scorecard::Scorecard, out_dir: &Path) {
 }
 
 fn run_compare_all(golden: &[CachedGoldenSample], sr: u32, out_dir: &Path) -> Result<()> {
-    println!("==============================================================================================================");
+    println!("========================================================================================================================");
     println!(" MULTI-VERSION BANDONEON SYNTHESIS COMPARISON (n={} Golden WAVs: 219 Train, 109 Held-Out Val)", golden.len());
-    println!("==============================================================================================================");
+    println!("========================================================================================================================");
     println!(
-        "{:<14} | {:>9} | {:>9} | {:>8} | {:>8} | {:>8} | {:>8} | {:>8} | {:>9} | {:>5}",
-        "Version", "Train", "Val", "Harm(35)", "Tran(25)", "Dual(20)", "Ptch(10)", "Body(10)", "16v CPU", "Gates"
+        "{:<14} | {:>7} | {:>7} | {:>7} | {:>8} | {:>8} | {:>8} | {:>8} | {:>8} | {:>9} | {:>5}",
+        "Version", "Train", "Val", "Perf", "Harm(35)", "Tran(25)", "Dual(20)", "Ptch(10)", "Body(10)", "16v CPU", "Gates"
     );
-    println!("--------------------------------------------------------------------------------------------------------------");
+    println!("------------------------------------------------------------------------------------------------------------------------");
 
     let mut entries = Vec::new();
     for ver in SynthVersion::ALL {
-        let mut preset = BandoneonPreset::for_version(ver);
-        if ver == SynthVersion::V3Unified {
-            let default_path = Path::new("assets/presets/default_bandoneon.json");
-            if default_path.exists() {
-                if let Ok(s) = std::fs::read_to_string(default_path) {
-                    if let Ok(loaded) = serde_json::from_str::<BandoneonPreset>(&s) {
-                        if loaded.version == SynthVersion::V3Unified {
-                            preset = loaded;
-                        }
-                    }
-                }
-            }
-        }
+        let preset = BandoneonPreset::for_version(ver);
         let card = evaluate_preset(&preset, golden, sr, true);
         let s = &card.scores;
         let vc = &s.val_categories;
         println!(
-            "{:<14} | {:>9.2} | {:>9.2} | {:>8.2} | {:>8.2} | {:>8.2} | {:>8.2} | {:>8.2} | {:>7.1}us | {:>5}",
+            "{:<14} | {:>7.2} | {:>7.2} | {:>7.2} | {:>8.2} | {:>8.2} | {:>8.2} | {:>8.2} | {:>8.2} | {:>7.1}us | {:>5}",
             ver.slug(),
             s.composite_train_score,
             s.composite_val_score,
+            card.performance.performance_score,
             vc.harmonic_profile.score,
             vc.transients.score,
             vc.dual_reed.score,
@@ -287,7 +285,7 @@ fn run_compare_all(golden: &[CachedGoldenSample], sr: u32, out_dir: &Path) -> Re
             scorecard: card,
         });
     }
-    println!("==============================================================================================================");
+    println!("========================================================================================================================");
 
     std::fs::create_dir_all(out_dir)?;
     let cmp_json = serde_json::to_string_pretty(&entries)?;
@@ -297,24 +295,27 @@ fn run_compare_all(golden: &[CachedGoldenSample], sr: u32, out_dir: &Path) -> Re
         std::fs::write(web_cmp, &cmp_json)?;
     }
 
-    let mut md = String::from("# Multi-Version Synthesis Comparison Report\n\n");
-    md.push_str("| Version | Description | Train Score | Val Score | 1. Harmonic (Val) | 2. Transients (Val) | 3. Dual-Reed (Val) | 4. Pitch (Val) | 5. Body (Val) | 16-Voice CPU | Gates |\n");
-    md.push_str("| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n");
+    let mut md = String::from("# Multi-Version Synthesis Comparison Report (`v1` .. `v4`)\n\n");
+    md.push_str("| Version | Description | Train Score | Val Score | Perf Score | 1. Harmonic (Val) | 2. Transients (Val) | 3. Dual-Reed (Val) | 4. Pitch (Val) | 5. Body (Val) | 16-Voice CPU | Headroom | Gates |\n");
+    md.push_str("| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n");
     for e in &entries {
         let s = &e.scorecard.scores;
         let vc = &s.val_categories;
+        let p = &e.scorecard.performance;
         md.push_str(&format!(
-            "| `{}` | {} | **{:.2}** | **{:.2}** | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | `{:.1} us` | {} |\n",
+            "| `{}` | {} | **{:.2}** | **{:.2}** | **{:.2}** | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | `{:.1} us` | `{:.1}x` | {} |\n",
             e.slug,
             e.label,
             s.composite_train_score,
             s.composite_val_score,
+            p.performance_score,
             vc.harmonic_profile.score,
             vc.transients.score,
             vc.dual_reed.score,
             vc.pitch_bend.score,
             vc.body_resonance.score,
-            e.scorecard.performance.voice_16_us_per_quantum,
+            p.voice_16_us_per_quantum,
+            p.realtime_headroom_factor,
             if e.scorecard.gates.passed_all { "PASS" } else { "FAIL" }
         ));
     }

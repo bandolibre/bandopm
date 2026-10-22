@@ -1,8 +1,9 @@
-use crate::preset::{BandoneonPreset, Hand, ResolvedNoteParams, SynthVersion};
+use crate::preset::{BandoneonPreset, Hand, ResolvedNoteParams};
 use crate::reed::FreeReed;
 
 /// Single bandoneon button voice modeling a shared reed chamber (*celda*), pallet valve,
 /// coupled 8' (primary) and 4' (octave) free reeds with mode-locked acoustic beating,
+/// pitch-scaled *celda* cavity resonance (*Okada 2025*), leather *zapatilla* valve acoustics,
 /// and Curle dipole cyclostationary aeroacoustic turbulence.
 #[derive(Debug, Clone)]
 pub struct BandoneonVoice {
@@ -17,7 +18,7 @@ pub struct BandoneonVoice {
     params: ResolvedNoteParams,
 
     /// Pallet valve aperture `A_valve(t) in [0.0, 1.0]`.
-    valve_aperture: f32,
+    pub valve_aperture: f32,
     prev_valve_aperture: f32,
     valve_open_coeff: f32,
     valve_close_coeff: f32,
@@ -25,9 +26,17 @@ pub struct BandoneonVoice {
     /// Mechanical pallet valve click envelope.
     click_env: f32,
     click_filter_z1: f32,
+    /// Leather pallet (*zapatilla*) Note-Off seating thump envelope & filter states (`v4_zapatilla` / `v4`).
+    zapatilla_env: f32,
+    zapatilla_z1: f32,
+    zapatilla_z2: f32,
     /// Air turbulence band-pass filter state.
     noise_bp_z1: f32,
     noise_bp_z2: f32,
+
+    /// Individual *celda* cavity 2-pole trapezoidal SVF states (`v4_celda` / `v4`).
+    celda_ic1eq: f32,
+    celda_ic2eq: f32,
 
     /// Shared local reed chamber (*celda*) pressure drop state.
     chamber_drop: f32,
@@ -65,8 +74,13 @@ impl BandoneonVoice {
             valve_close_coeff: 0.005,
             click_env: 0.0,
             click_filter_z1: 0.0,
+            zapatilla_env: 0.0,
+            zapatilla_z1: 0.0,
+            zapatilla_z2: 0.0,
             noise_bp_z1: 0.0,
             noise_bp_z2: 0.0,
+            celda_ic1eq: 0.0,
+            celda_ic2eq: 0.0,
             chamber_drop: 0.0,
             beat_phase: 0.0,
             onset_transient_env: 0.0,
@@ -80,9 +94,9 @@ impl BandoneonVoice {
 
     /// Re-resolves note parameters when the preset or synthesis version is switched live.
     #[inline]
-    pub fn refresh_preset(&mut self, preset: &BandoneonPreset) {
+    pub fn refresh_preset(&mut self, preset: &BandoneonPreset, sample_rate: f32) {
         if self.active {
-            self.params = preset.resolve_note(self.midi_note, self.hand);
+            self.params = preset.resolve_note_at_rate(self.midi_note, self.hand, sample_rate);
         }
     }
 
@@ -106,6 +120,7 @@ impl BandoneonVoice {
         preset: &BandoneonPreset,
         age: u64,
     ) {
+        let same_button = self.active && self.midi_note == midi_note && self.hand == hand;
         self.active = true;
         self.key_down = true;
         self.midi_note = midi_note;
@@ -113,7 +128,8 @@ impl BandoneonVoice {
         self.age = age;
         let vel_norm = (velocity.clamp(1, 127) as f32) / 127.0;
         self.velocity_norm = vel_norm;
-        self.params = preset.resolve_note(midi_note, hand);
+        let sr = sample_rate.max(8000.0);
+        self.params = preset.resolve_note_at_rate(midi_note, hand, sr);
 
         let f0 = 440.0 * 2.0f32.powf((midi_note as f32 - 69.0) / 12.0);
         // Alfred Arnold dry (*a seco*) tuning with intra-celda 1:2 entrainment:
@@ -123,9 +139,20 @@ impl BandoneonVoice {
 
         self.reed_8ft.reset(f0, 0.0);
         self.reed_4ft.reset(f_4ft, 0.17);
+        self.celda_ic1eq = 0.0;
+        self.celda_ic2eq = 0.0;
+        self.zapatilla_env = 0.0;
+        self.zapatilla_z1 = 0.0;
+        self.zapatilla_z2 = 0.0;
         self.chamber_drop = 0.0;
         self.beat_phase = 0.15;
-        self.prev_valve_aperture = 0.0;
+        if !same_button {
+            self.valve_aperture = 0.0;
+            self.click_filter_z1 = 0.0;
+            self.noise_bp_z1 = 0.0;
+            self.noise_bp_z2 = 0.0;
+        }
+        self.prev_valve_aperture = self.valve_aperture;
         self.onset_transient_env = vel_norm * vel_norm;
         self.voice_samples = 0;
         // High-velocity staccato attacks strongly excite the lower-mass 4' octave reed
@@ -134,10 +161,11 @@ impl BandoneonVoice {
         // Higher velocity opens the pallet valve faster
         let open_ms: f32 = (preset.valve_open_ms * (1.35 - 0.75 * vel_norm)).max(0.6);
         let close_ms: f32 = preset.valve_close_ms.max(1.0);
-        self.valve_open_coeff =
-            (1.0 - (-1.0 / (open_ms * 0.001 * sample_rate).max(1.0)).exp()).clamp(0.0005, 0.5);
+        self.valve_open_coeff = (1.0 - (-1.0 / (open_ms * 0.001 * sr).max(1.0)).exp())
+            .clamp(0.0005, 0.5);
         self.valve_close_coeff =
-            (1.0 - (-1.0 / (close_ms * 0.001 * sample_rate).max(1.0)).exp()).clamp(0.0002, 0.5);
+            (1.0 - (-1.0 / (close_ms * 0.001 * sr).max(1.0)).exp())
+                .clamp(0.0002, 0.5);
 
         // Pallet valve click scales with velocity^1.6 and manual transmission scale
         self.click_env =
@@ -152,14 +180,22 @@ impl BandoneonVoice {
                 * rel_norm
                 * preset.pallet_click_gain
                 * self.params.pallet_click_scale;
+            if preset.version.use_v4_zapatilla() {
+                self.zapatilla_env += (0.28 + 0.72 * rel_norm)
+                    * preset.pallet_click_gain
+                    * self.params.zapatilla_thump_gain;
+            }
         }
     }
 
     /// Renders a single sample for this voice. Returns `(audio_sample, total_orifice_flow)`.
-    #[inline]
+    #[inline(always)]
     pub fn tick(
         &mut self,
         sample_rate: f32,
+        dt: f32,
+        inv_sr_38: f32,
+        inv_sr_42: f32,
         bellows_pressure: f32,
         preset: &BandoneonPreset,
     ) -> (f32, f32) {
@@ -168,16 +204,16 @@ impl BandoneonVoice {
         }
 
         let version = preset.version;
-        let use_tran = matches!(
-            version,
-            SynthVersion::V3TransientEntrain | SynthVersion::V3Unified
-        );
         self.voice_samples = self.voice_samples.saturating_add(1);
 
         // 1. Update pallet valve aperture A_valve(t)
         self.prev_valve_aperture = self.valve_aperture;
         if self.key_down {
-            self.valve_aperture += self.valve_open_coeff * (1.0 - self.valve_aperture);
+            if self.valve_aperture < 0.9999 {
+                self.valve_aperture += self.valve_open_coeff * (1.0 - self.valve_aperture);
+            } else {
+                self.valve_aperture = 1.0;
+            }
         } else {
             self.valve_aperture *= 1.0 - self.valve_close_coeff;
             if self.valve_aperture < 1e-5 {
@@ -185,10 +221,12 @@ impl BandoneonVoice {
             }
         }
         let d_valve = (self.valve_aperture - self.prev_valve_aperture).abs() * sample_rate * 0.01;
-        // Decay initial vortex-shedding transient (~45 ms time constant at 48 kHz: active in stacc 15..100ms, zero in sustain >280ms)
-        self.onset_transient_env *= 0.99954;
-        if self.onset_transient_env < 1e-6 {
-            self.onset_transient_env = 0.0;
+        // Decay initial vortex-shedding transient (~45 ms time constant: active in stacc 15..100ms, zero in sustain >270ms)
+        if self.onset_transient_env > 0.0 {
+            self.onset_transient_env *= (1.0 - 22.0805 * dt).max(0.0);
+            if self.onset_transient_env < 2.5e-3 {
+                self.onset_transient_env = 0.0;
+            }
         }
 
         // 2. Local reed chamber (*celda*) pressure drop coupling between 8' and 4' reeds
@@ -198,10 +236,6 @@ impl BandoneonVoice {
         } else {
             self.peak_voice_pressure += 0.0005 * (local_delta_p - self.peak_voice_pressure);
         }
-
-        let dt = 1.0 / sample_rate;
-        let inv_sr_38 = dt * (1.0 / 0.38);
-        let inv_sr_42 = dt * (6.0 / 0.42);
 
         // Fast branchless parabolic sine approximation on beat_phase in [0, 1)
         self.beat_phase += self.params.octave_beat_hz * dt;
@@ -225,25 +259,29 @@ impl BandoneonVoice {
         );
 
         // 4. Step 4' octave reed (if active on this register)
-        let (flow_4ft, rad_4ft) = if self.params.octave_4ft_gain > 1e-3 {
+        let p_4ft = local_delta_p * beat_mod;
+        let (flow_4ft, mut rad_4ft) = if self.params.octave_4ft_gain > 1e-3 {
             self.reed_4ft.tick(
                 version,
                 sample_rate,
                 dt,
                 inv_sr_38,
                 inv_sr_42,
-                local_delta_p * beat_mod,
+                p_4ft,
                 self.valve_aperture,
                 &self.params.reed_4ft,
             )
         } else {
             (0.0, 0.0)
         };
+        if version.use_v4_coupled() {
+            rad_4ft *= 1.0 + self.params.celda_cross_mod * flow_8ft;
+        }
 
         // Dynamic 4'-to-8' coupling gain uses smoothed `peak_voice_pressure` so it doesn't
         // square/warp the within-note attack rise time contour.
         let vel_excess = (self.velocity_norm - 0.34).max(0.0);
-        let vel_4ft_boost = if use_tran {
+        let vel_4ft_boost = if version.use_v3_tran() {
             1.0 + self.params.staccato_4ft_boost
                 * (0.45 * self.velocity_norm * self.velocity_norm + 1.35 * vel_excess)
         } else {
@@ -261,7 +299,7 @@ impl BandoneonVoice {
             self.chamber_drop = 0.0;
         }
 
-        // 5. Mechanical pallet valve click & Curle dipole cyclostationary orifice air turbulence
+        // 5. Mechanical pallet valve click, leather *zapatilla* release thump & Curle dipole turbulence
         let white = self.next_noise();
         let mut mech_noise = 0.0f32;
         if self.click_env > 1e-6 {
@@ -277,21 +315,68 @@ impl BandoneonVoice {
             self.click_env = 0.0;
         }
 
+        if self.zapatilla_env > 1e-6 {
+            let thump_cut = match self.hand {
+                Hand::LeftBajos => 0.022,
+                Hand::RightCantabile => 0.035,
+            };
+            self.zapatilla_z1 += thump_cut * (white - self.zapatilla_z1);
+            let thump_bp = self.zapatilla_z1 - self.zapatilla_z2;
+            self.zapatilla_z2 += 0.007 * thump_bp;
+            mech_noise += self.zapatilla_env * thump_bp;
+            self.zapatilla_env *= 0.992;
+        } else {
+            self.zapatilla_env = 0.0;
+        }
+
         // Cyclostationary jet turbulence proportional to instantaneous reed flow (Curle dipole law)
         // plus transient vortex shedding and post-click orifice leakage chiff during staccato (18..100ms).
         let flow_env = self.reed_8ft.osc_amp() + 0.5 * self.reed_4ft.osc_amp();
         let vortex_burst = (d_valve + 1.85 * self.onset_transient_env) * flow_env;
-        let leak_chiff = if use_tran && self.params.staccato_chiff_gain > 1e-5 {
-            // Gate post-click vortex detachment after the first 17.5ms so the initial pallet click
-            // impulse (0..16ms) is uncontaminated while staccato jet turbulence (18..100ms) is enriched.
-            let post_click_gate = ((self.voice_samples as f32 * dt - 0.0175) * 120.0).clamp(0.0, 1.0);
-            self.params.staccato_chiff_gain
-                * post_click_gate
-                * self.valve_aperture
-                * flow_env
-                * self.onset_transient_env
+        let (post_click_gate, leak_chiff, gain_8ft, gain_4ft) = if self.onset_transient_env > 0.0 {
+            let elapsed_s = self.voice_samples as f32 * dt;
+            let pc_gate = ((elapsed_s - 0.0175) * 120.0).clamp(0.0, 1.0);
+            let chiff = if version.use_v3_tran() {
+                let base_chiff = self.params.staccato_chiff_gain
+                    * pc_gate
+                    * self.valve_aperture
+                    * flow_env
+                    * self.onset_transient_env;
+                let zapatilla_chiff = if version.use_v4_zapatilla() {
+                    let gap_jet = 0.55 * local_delta_p.sqrt() + 0.45 * flow_env;
+                    self.params.zapatilla_thump_gain
+                        * pc_gate
+                        * self.valve_aperture
+                        * gap_jet
+                        * self.onset_transient_env
+                } else {
+                    0.0
+                };
+                base_chiff + zapatilla_chiff
+            } else {
+                0.0
+            };
+            let (g8, g4) = if version.use_v3_tran() && elapsed_s < 0.15 {
+                let hopf_knee = self.params.reed_8ft.hopf_knee;
+                let time_entrain = hopf_knee * (1.0 - elapsed_s * 62.5).clamp(0.0, 1.0);
+                let amp_entrain = if version.use_v4_coupled() {
+                    let bloom_8ft = self.reed_8ft.harmonic_bloom();
+                    let sustain_gate = (1.0 - (elapsed_s - 0.025).max(0.0) * 10.0).clamp(0.0, 1.0);
+                    (1.0 - bloom_8ft) * sustain_gate * self.params.hopf_onset_lead
+                } else {
+                    0.0
+                };
+                let w_hopf = (time_entrain + 1.8 * amp_entrain).clamp(-0.8, 1.65);
+                (
+                    (1.0 - 0.14 * w_hopf).clamp(0.40, 1.25),
+                    dyn_4ft_gain * (1.0 + 0.18 * w_hopf).max(0.25),
+                )
+            } else {
+                (1.0, dyn_4ft_gain)
+            };
+            (pc_gate, chiff, g8, g4)
         } else {
-            0.0
+            (1.0, 0.0, 1.0, dyn_4ft_gain)
         };
         let aero_drive =
             (flow_env * self.params.air_noise_scale + 7.5 * vortex_burst + leak_chiff)
@@ -307,6 +392,7 @@ impl BandoneonVoice {
         if !self.key_down
             && self.valve_aperture == 0.0
             && self.click_env == 0.0
+            && self.zapatilla_env == 0.0
             && self.reed_8ft.is_silent()
             && self.reed_4ft.is_silent()
         {
@@ -314,22 +400,24 @@ impl BandoneonVoice {
             return (0.0, 0.0);
         }
 
-        // Complementary bimorphic 8'/4' Hopf onset lag during the initial 16ms attack window:
-        // the lower-mass 4' octave reed responds immediately while the heavier 8' reed lags,
-        // enriching initial 2*f0 click transient energy without shifting total RMS or steady state.
-        let hopf_knee = self.params.reed_8ft.hopf_knee;
-        let (gain_8ft, gain_4ft) = if use_tran && hopf_knee > 1e-5 {
-            let onset_entrain = (1.0 - (self.voice_samples as f32 * dt) * 62.5).clamp(0.0, 1.0);
-            let w_hopf = hopf_knee * onset_entrain;
-            (
-                (1.0 - 0.14 * w_hopf).max(0.5),
-                dyn_4ft_gain * (1.0 + 0.18 * w_hopf),
-            )
+        let reed_tonal = gain_8ft * rad_8ft + gain_4ft * rad_4ft;
+
+        // 6. Pitch-scaled individual *celda* cavity resonator (Okada 2025, `v4_celda` / `v4`)
+        let reed_radiated = if self.params.celda_gain.abs() > 1e-6 {
+            let v3 = reed_tonal - self.celda_ic2eq;
+            let v1 = self.params.celda_a1 * self.celda_ic1eq + self.params.celda_a2 * v3;
+            let v2 = self.celda_ic2eq
+                + self.params.celda_a2 * self.celda_ic1eq
+                + self.params.celda_a3 * v3;
+            self.celda_ic1eq = 2.0 * v1 - self.celda_ic1eq + 1e-20;
+            self.celda_ic2eq = 2.0 * v2 - self.celda_ic2eq;
+            reed_tonal + (self.params.celda_gain * post_click_gate) * v1
         } else {
-            (1.0, dyn_4ft_gain)
+            reed_tonal
         };
 
-        let reed_mix = gain_8ft * rad_8ft + gain_4ft * rad_4ft + mech_noise;
+        let reed_mix = reed_radiated + mech_noise;
         (reed_mix, total_flow)
     }
 }
+

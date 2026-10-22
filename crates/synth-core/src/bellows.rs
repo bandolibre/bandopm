@@ -4,6 +4,8 @@ pub struct BellowsModel {
     sample_rate: f32,
     /// Latest MIDI CC#11 normalized in `[0.0, 1.0]`.
     target_cc11: f32,
+    /// Precomputed `target_cc11.powf(curve_gamma)` so `tick()` is branchless and `powf`-free.
+    target_pressure: f32,
     /// Instantaneous smoothed bellows reservoir pressure in `[0.0, 1.5]`.
     current_pressure: f32,
     /// Transient pressure boost injected by sharp `Note On` blade velocity.
@@ -27,6 +29,7 @@ impl BellowsModel {
         let mut model = Self {
             sample_rate: sample_rate.max(8000.0),
             target_cc11: 0.0,
+            target_pressure: 0.0,
             current_pressure: 0.0,
             velocity_impulse: 0.0,
             curve_gamma: 1.25,
@@ -42,6 +45,11 @@ impl BellowsModel {
 
     pub fn set_smoothing(&mut self, gamma: f32, attack_ms: f32, release_ms: f32) {
         self.curve_gamma = gamma.clamp(0.5, 3.0);
+        self.target_pressure = if self.target_cc11 <= 0.0 {
+            0.0
+        } else {
+            self.target_cc11.powf(self.curve_gamma)
+        };
         self.attack_coeff = Self::ms_to_coeff(self.sample_rate, attack_ms.max(0.5));
         self.release_coeff = Self::ms_to_coeff(self.sample_rate, release_ms.max(0.5));
         self.impulse_decay_coeff = 1.0 - Self::ms_to_coeff(self.sample_rate, 18.0);
@@ -58,12 +66,23 @@ impl BellowsModel {
     pub fn set_cc11(&mut self, cc11: u8) {
         let norm = (cc11.min(127) as f32) / 127.0;
         self.target_cc11 = norm;
+        self.target_pressure = if norm <= 0.0 {
+            0.0
+        } else {
+            norm.powf(self.curve_gamma)
+        };
     }
 
     /// Sets continuous high-resolution normalized expression in `[0.0, 1.0]`.
     #[inline]
     pub fn set_expression_norm(&mut self, expr: f32) {
-        self.target_cc11 = expr.clamp(0.0, 1.0);
+        let norm = expr.clamp(0.0, 1.0);
+        self.target_cc11 = norm;
+        self.target_pressure = if norm <= 0.0 {
+            0.0
+        } else {
+            norm.powf(self.curve_gamma)
+        };
     }
 
     /// Called on `Note On` with the Bandolibre blade velocity (`1..=127`).
@@ -86,12 +105,12 @@ impl BellowsModel {
     }
 
     /// Advances the bellows state by one audio sample and returns instantaneous reservoir pressure.
-    #[inline]
+    #[inline(always)]
     pub fn tick(&mut self, total_volume_flow: f32, chamber_coupling: f32) -> f32 {
         let raw_target = if self.table_mode && self.target_cc11 < 1e-4 {
             self.table_mode_pressure
         } else {
-            self.target_cc11.powf(self.curve_gamma)
+            self.target_pressure
         };
 
         let coeff = if raw_target > self.current_pressure {
