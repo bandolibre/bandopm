@@ -10,7 +10,7 @@ We are building a **real-time physical modeling bandoneon synthesizer in Rust** 
 - **Control Input**: MIDI `Note On`, `Note Off` (with velocity sensed from the bellows blade), and continuous `CC#11` (Expression, driven by the bellows pressure sensor).
 - **Acoustic Grounding**: Physical modeling of free-reed acoustics (blown-closed cantilever reed + Bernoulli orifice flow + octave reed pair coupling + wooden box resonance), calibrated against real bandoneon recordings.
 
-Always read [`docs/VISION.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/VISION.md), [`docs/DESIGN.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/DESIGN.md), [`docs/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/EVALUATION.md), and [`docs/REFERENCES.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/REFERENCES.md) before proposing architectural or DSP changes.
+Always read [`reference_doc/VISION.md`](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/VISION.md), [`reference_doc/DESIGN.md`](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/DESIGN.md), [`reference_doc/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/EVALUATION.md), and [`reference_doc/REFERENCES.md`](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/REFERENCES.md) before proposing architectural or DSP changes.
 
 ---
 
@@ -44,12 +44,13 @@ synth/
 ├── AGENTS.md
 ├── Cargo.toml                  # Rust workspace manifest
 ├── serve-web.sh                # Builds synth-wasm into docs/ and serves docs/ over HTTP
-├── docs/                       # GitHub Pages web app root + architectural documentation
+├── docs/                       # GitHub Pages static web app root (website files only)
 │   ├── .nojekyll               # Disables Jekyll processing on GitHub Pages
 │   ├── index.html              # Browser UI (BandoPM WebMIDI + AudioWorklet + Dual/Split keyboards)
 │   ├── app.js                  # WebMIDI, AudioWorklet host, 6-version selector, and UI logic
 │   ├── worklet-processor.js    # Real-time WebAudio AudioWorkletProcessor host
-│   ├── synth_wasm.wasm         # Compiled WASM DSP module (committed for GitHub Pages)
+│   └── synth_wasm.wasm         # Compiled WASM DSP module (committed for GitHub Pages)
+├── reference_doc/              # Architectural & scientific reference documentation
 │   ├── VISION.md               # Product vision, goals, and phased roadmap
 │   ├── DESIGN.md               # Detailed DSP & software architecture
 │   ├── EVALUATION.md           # Autonomous AI evaluation, scorecard, and perf gates
@@ -70,7 +71,7 @@ synth/
 
 ## 4. Autonomous AI Iteration Protocol (Single-Loop Architecture)
 
-This project is architected for **autonomous, metric-driven AI iteration** (detailed in [`docs/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/EVALUATION.md)). When iterating on DSP equations or physical presets, AI agents MUST follow these rules:
+This project is architected for **autonomous, metric-driven AI iteration** (detailed in [`reference_doc/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/EVALUATION.md)). When iterating on DSP equations or physical presets, AI agents MUST follow these rules:
 
 1. **Single-Loop Guided by the Multi-Tier Scorecard**:
    - Run `cargo run --release -p synth-eval` to generate `target/eval/scorecard.json` and `target/eval/scorecard.md`.
@@ -84,7 +85,7 @@ This project is architected for **autonomous, metric-driven AI iteration** (deta
      - Silence convergence ($< -90\text{ dBFS}$) when `CC#11` drops to 0 and all notes are off.
      - **Native CPU Budget**: Rendering a 128-sample quantum at `48 kHz` ($2666.7\ \mu\text{s}$ real-time window) must stay under **$350\ \mu\text{s}$ for 16 active voices** (32 coupled reeds) in native `--release` benchmarks.
 4. **Keep Documentation Synchronized**:
-   - When adding or modifying physical modeling equations, evaluation metrics, MIDI mappings, or crate boundaries, update [`docs/DESIGN.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/DESIGN.md) and [`docs/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/EVALUATION.md) in the same change.
+   - When adding or modifying physical modeling equations, evaluation metrics, MIDI mappings, or crate boundaries, update [`reference_doc/DESIGN.md`](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/DESIGN.md) and [`reference_doc/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/EVALUATION.md) in the same change.
 5. **Pre-Commit WebAssembly Build Requirement (GitHub Pages in `docs/`)**:
    - The browser application and [`docs/synth_wasm.wasm`](file:///usr/local/google/home/plabatut/projects/synth/docs/synth_wasm.wasm) are served directly from `docs/` via **GitHub Pages** and tracked in Git.
    - **Before every `git commit`** (especially whenever `crates/synth-core`, `crates/synth-wasm`, or `assets/presets/` changes), you **MUST** rebuild and update `docs/synth_wasm.wasm`:

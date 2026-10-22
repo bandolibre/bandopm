@@ -13,10 +13,10 @@ This repository is structured for AI-assisted and human collaborative developmen
 | Document | Purpose |
 | :--- | :--- |
 | [**`AGENTS.md`**](file:///usr/local/google/home/plabatut/projects/synth/AGENTS.md) | **AI Development Guide**: Architectural invariants, real-time audio thread rules, autonomous hill-climbing loop, and workflow instructions for coding agents. |
-| [**`docs/VISION.md`**](file:///usr/local/google/home/plabatut/projects/synth/docs/VISION.md) | **Project Vision & Roadmap**: Goals, target hardware (Bandolibre), acoustic philosophy, calibration strategy using real bandoneon samples, and phased target platforms. |
-| [**`docs/DESIGN.md`**](file:///usr/local/google/home/plabatut/projects/synth/docs/DESIGN.md) | **System & DSP Architecture**: Rust workspace structure, MIDI/CC#11 control mapping, free-reed physical modeling equations, dual-reed coupling, and body resonance. |
-| [**`docs/EVALUATION.md`**](file:///usr/local/google/home/plabatut/projects/synth/docs/EVALUATION.md) | **Autonomous AI Evaluation & Iteration**: Single-loop AI optimization protocol, envelope inversion from audio-only golden WAVs, 5-tier acoustic scorecard, anti-overfitting regularization, and native CPU benchmarks. |
-| [**`docs/REFERENCES.md`**](file:///usr/local/google/home/plabatut/projects/synth/docs/REFERENCES.md) | **Research & Reference Library**: Curated academic papers on free-reed acoustics, Bandoneon 2.0 research (UNQ), Bandolibre hardware specs, and the Rust/WASM/CLAP audio ecosystem. |
+| [**`reference_doc/VISION.md`**](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/VISION.md) | **Project Vision & Roadmap**: Goals, target hardware (Bandolibre), acoustic philosophy, calibration strategy using real bandoneon samples, and phased target platforms. |
+| [**`reference_doc/DESIGN.md`**](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/DESIGN.md) | **System & DSP Architecture**: Rust workspace structure, MIDI/CC#11 control mapping, free-reed physical modeling equations, dual-reed coupling, and body resonance. |
+| [**`reference_doc/EVALUATION.md`**](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/EVALUATION.md) | **Autonomous AI Evaluation & Iteration**: Single-loop AI optimization protocol, envelope inversion from audio-only golden WAVs, 5-tier acoustic scorecard, anti-overfitting regularization, and native CPU benchmarks. |
+| [**`reference_doc/REFERENCES.md`**](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/REFERENCES.md) | **Research & Reference Library**: Curated academic papers on free-reed acoustics, Bandoneon 2.0 research (UNQ), Bandolibre hardware specs, and the Rust/WASM/CLAP audio ecosystem. |
 
 ---
 
