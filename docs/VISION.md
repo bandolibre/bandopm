@@ -1,8 +1,8 @@
-# Project Vision: Bandolibre Physical Modeling Synthesizer
+# Project Vision: BandoPM — Bandoneon Physical Modeling Synthesizer
 
 ## 1. Executive Summary
 
-The goal of this project is to build an expressive, ultra-low-latency **bandoneon sound synthesizer** tailored for the **[Bandolibre](https://bandolibre.github.io)** open-source MIDI controller.
+The goal of **BandoPM** is to build an expressive, ultra-low-latency **bandoneon physical modeling sound synthesizer** tailored for the **[Bandolibre](https://bandolibre.github.io)** open-source MIDI controller.
 
 Traditional acoustic bandoneons (such as vintage *Alfred Arnold "AA"* or *Premier* instruments) are increasingly rare, prohibitively expensive, and difficult to maintain. Digital controllers like **Bandolibre** and research initiatives like **Bandoneon 2.0** democratize access to the instrument's physical ergonomics and 142-button layout. However, sample-based synthesis often falls short when translating the continuous, nonlinear interplay between the player's bellows pressure and the free reeds.
 

@@ -43,7 +43,19 @@ impl BiquadPeaking {
         let a2 = 1.0 - alpha / a;
 
         let inv_a0 = 1.0 / a0;
-        self.b0 = b0 * inv_a0;
+        let new_b0 = b0 * inv_a0;
+        if self.z1 != 0.0 || self.z2 != 0.0 {
+            let old_d = self.b0 - 1.0;
+            let new_d = new_b0 - 1.0;
+            let scale = if old_d.abs() > 1e-4 {
+                (new_d / old_d).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            self.z1 *= scale;
+            self.z2 *= scale;
+        }
+        self.b0 = new_b0;
         self.b1 = b1 * inv_a0;
         self.b2 = b2 * inv_a0;
         self.a1 = a1 * inv_a0;

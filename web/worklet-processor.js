@@ -7,6 +7,8 @@ class BandolibreProcessor extends AudioWorkletProcessor {
     this.rightPtr = 0;
     this.pendingEvents = [];
 
+    this.pendingVersionId = null;
+
     this.port.onmessage = async (event) => {
       const msg = event.data;
       if (msg.type === 'init-wasm') {
@@ -19,11 +21,27 @@ class BandolibreProcessor extends AudioWorkletProcessor {
           if (msg.tableMode !== undefined) {
             this.wasmExports.synth_set_table_mode(this.ctxPtr, msg.tableMode ? 1 : 0);
           }
+          const initialVer = this.pendingVersionId !== null ? this.pendingVersionId : msg.versionId;
+          if (initialVer !== undefined && initialVer !== null && this.wasmExports.synth_set_version) {
+            this.wasmExports.synth_set_version(this.ctxPtr, initialVer | 0);
+          }
+          if (msg.keyboardMode !== undefined && this.wasmExports.synth_set_keyboard_mode) {
+            this.wasmExports.synth_set_keyboard_mode(this.ctxPtr, msg.keyboardMode | 0);
+          }
+          if (msg.splitNote !== undefined && this.wasmExports.synth_set_split_note) {
+            this.wasmExports.synth_set_split_note(this.ctxPtr, msg.splitNote | 0);
+          }
+          if (msg.stereoWidth !== undefined && this.wasmExports.synth_set_stereo_width) {
+            this.wasmExports.synth_set_stereo_width(this.ctxPtr, +msg.stereoWidth);
+          }
           for (const ev of this.pendingEvents) {
             this.wasmExports.synth_handle_midi(this.ctxPtr, ev[0], ev[1], ev[2]);
           }
           this.pendingEvents = [];
-          this.port.postMessage({ type: 'ready', sampleRate });
+          const activeVersionId = this.wasmExports.synth_get_version
+            ? this.wasmExports.synth_get_version(this.ctxPtr)
+            : 5;
+          this.port.postMessage({ type: 'ready', sampleRate, activeVersionId });
         } catch (err) {
           this.port.postMessage({ type: 'error', message: String(err) });
         }
@@ -36,6 +54,28 @@ class BandolibreProcessor extends AudioWorkletProcessor {
       } else if (msg.type === 'table-mode') {
         if (this.wasmExports && this.ctxPtr) {
           this.wasmExports.synth_set_table_mode(this.ctxPtr, msg.enabled ? 1 : 0);
+        }
+      } else if (msg.type === 'set-keyboard-mode') {
+        if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_keyboard_mode) {
+          this.wasmExports.synth_set_keyboard_mode(this.ctxPtr, msg.modeId | 0);
+        }
+      } else if (msg.type === 'set-split-note') {
+        if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_split_note) {
+          this.wasmExports.synth_set_split_note(this.ctxPtr, msg.splitNote | 0);
+        }
+      } else if (msg.type === 'set-stereo-width') {
+        if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_stereo_width) {
+          this.wasmExports.synth_set_stereo_width(this.ctxPtr, +msg.stereoWidth);
+        }
+      } else if (msg.type === 'set-version') {
+        const vid = msg.versionId | 0;
+        this.pendingVersionId = vid;
+        if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_version) {
+          this.wasmExports.synth_set_version(this.ctxPtr, vid);
+          const activeVersionId = this.wasmExports.synth_get_version
+            ? this.wasmExports.synth_get_version(this.ctxPtr)
+            : vid;
+          this.port.postMessage({ type: 'version-changed', activeVersionId });
         }
       }
     };

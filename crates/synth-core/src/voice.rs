@@ -1,5 +1,5 @@
-use crate::preset::{BandoneonPreset, Hand, ResolvedNoteParams};
-use crate::reed::{FreeReed, ReedTickParams};
+use crate::preset::{BandoneonPreset, Hand, ResolvedNoteParams, SynthVersion};
+use crate::reed::FreeReed;
 
 /// Single bandoneon button voice modeling a shared reed chamber (*celda*), pallet valve,
 /// coupled 8' (primary) and 4' (octave) free reeds with mode-locked acoustic beating,
@@ -37,6 +37,8 @@ pub struct BandoneonVoice {
     onset_transient_env: f32,
     /// Peak smoothed pressure seen by this voice (stabilizes 4'/8' ratio during attack).
     peak_voice_pressure: f32,
+    /// Elapsed audio samples since `NoteOn` (used to gate post-click vortex shedding).
+    voice_samples: u32,
 
     /// Primary 8' reed (`f0`).
     reed_8ft: FreeReed,
@@ -69,9 +71,18 @@ impl BandoneonVoice {
             beat_phase: 0.0,
             onset_transient_env: 0.0,
             peak_voice_pressure: 0.0,
+            voice_samples: 0,
             reed_8ft: FreeReed::new(261.63, 0.0),
             reed_4ft: FreeReed::new(523.25, 0.25),
             rng_state: seed.max(1),
+        }
+    }
+
+    /// Re-resolves note parameters when the preset or synthesis version is switched live.
+    #[inline]
+    pub fn refresh_preset(&mut self, preset: &BandoneonPreset) {
+        if self.active {
+            self.params = preset.resolve_note(self.midi_note, self.hand);
         }
     }
 
@@ -116,6 +127,7 @@ impl BandoneonVoice {
         self.beat_phase = 0.15;
         self.prev_valve_aperture = 0.0;
         self.onset_transient_env = vel_norm * vel_norm;
+        self.voice_samples = 0;
         // High-velocity staccato attacks strongly excite the lower-mass 4' octave reed
         self.peak_voice_pressure = 0.25 + 1.05 * vel_norm * vel_norm;
 
@@ -155,6 +167,13 @@ impl BandoneonVoice {
             return (0.0, 0.0);
         }
 
+        let version = preset.version;
+        let use_tran = matches!(
+            version,
+            SynthVersion::V3TransientEntrain | SynthVersion::V3Unified
+        );
+        self.voice_samples = self.voice_samples.saturating_add(1);
+
         // 1. Update pallet valve aperture A_valve(t)
         self.prev_valve_aperture = self.valve_aperture;
         if self.key_down {
@@ -180,8 +199,12 @@ impl BandoneonVoice {
             self.peak_voice_pressure += 0.0005 * (local_delta_p - self.peak_voice_pressure);
         }
 
+        let dt = 1.0 / sample_rate;
+        let inv_sr_38 = dt * (1.0 / 0.38);
+        let inv_sr_42 = dt * (6.0 / 0.42);
+
         // Fast branchless parabolic sine approximation on beat_phase in [0, 1)
-        self.beat_phase += self.params.octave_beat_hz / sample_rate;
+        self.beat_phase += self.params.octave_beat_hz * dt;
         if self.beat_phase >= 1.0 {
             self.beat_phase -= 1.0;
         }
@@ -190,50 +213,45 @@ impl BandoneonVoice {
         let beat_mod = 1.0 + 0.045 * beat_sin;
 
         // 3. Step 8' primary reed
-        let tick_8ft = ReedTickParams {
+        let (flow_8ft, rad_8ft) = self.reed_8ft.tick(
+            version,
             sample_rate,
-            delta_p: local_delta_p,
-            valve_aperture: self.valve_aperture,
-            p_th: self.params.p_th_8ft,
-            asymmetry: self.params.reed_asymmetry,
-            slot_sharpness: self.params.slot_sharpness,
-            pressure_brightness_mod: self.params.pressure_brightness_mod,
-            baffle_cutoff_hz: self.params.baffle_cutoff_hz,
-            jet_corner_hz: self.params.jet_corner_hz,
-            reed_damping: self.params.reed_damping,
-            piston_coupling: self.params.piston_coupling,
-            pitch_bend_cents: self.params.pitch_bend_cents,
-            inertia_startup_mult: 0.95,
-        };
-        let (flow_8ft, rad_8ft) = self.reed_8ft.tick(&tick_8ft);
+            dt,
+            inv_sr_38,
+            inv_sr_42,
+            local_delta_p,
+            self.valve_aperture,
+            &self.params.reed_8ft,
+        );
 
         // 4. Step 4' octave reed (if active on this register)
-        //    Lower tongue mass gives faster aerodynamic startup (`inertia_startup_mult`).
         let (flow_4ft, rad_4ft) = if self.params.octave_4ft_gain > 1e-3 {
-            let tick_4ft = ReedTickParams {
+            self.reed_4ft.tick(
+                version,
                 sample_rate,
-                delta_p: local_delta_p * beat_mod,
-                valve_aperture: self.valve_aperture,
-                p_th: self.params.p_th_4ft,
-                asymmetry: self.params.reed_asymmetry * 0.95,
-                slot_sharpness: self.params.slot_sharpness * 0.90,
-                pressure_brightness_mod: self.params.pressure_brightness_mod * 0.95,
-                baffle_cutoff_hz: self.params.baffle_cutoff_hz * 0.85,
-                jet_corner_hz: self.params.jet_corner_hz * 1.15,
-                reed_damping: self.params.reed_damping * 1.10,
-                piston_coupling: self.params.piston_coupling * 1.25,
-                pitch_bend_cents: self.params.pitch_bend_cents * 0.50,
-                inertia_startup_mult: 2.05,
-            };
-            self.reed_4ft.tick(&tick_4ft)
+                dt,
+                inv_sr_38,
+                inv_sr_42,
+                local_delta_p * beat_mod,
+                self.valve_aperture,
+                &self.params.reed_4ft,
+            )
         } else {
             (0.0, 0.0)
         };
 
         // Dynamic 4'-to-8' coupling gain uses smoothed `peak_voice_pressure` so it doesn't
-        // square/warp the within-note attack rise time contour!
+        // square/warp the within-note attack rise time contour.
+        let vel_excess = (self.velocity_norm - 0.34).max(0.0);
+        let vel_4ft_boost = if use_tran {
+            1.0 + self.params.staccato_4ft_boost
+                * (0.45 * self.velocity_norm * self.velocity_norm + 1.35 * vel_excess)
+        } else {
+            1.0
+        };
         let dyn_4ft_gain = self.params.octave_4ft_gain
-            * (0.62 + self.params.octave_4ft_pressure_boost * self.peak_voice_pressure);
+            * (0.62 + self.params.octave_4ft_pressure_boost * self.peak_voice_pressure)
+            * vel_4ft_boost;
 
         let total_flow = flow_8ft + dyn_4ft_gain * flow_4ft;
         let target_drop =
@@ -260,11 +278,24 @@ impl BandoneonVoice {
         }
 
         // Cyclostationary jet turbulence proportional to instantaneous reed flow (Curle dipole law)
-        // plus transient vortex shedding during rapid pallet opening/staccato.
+        // plus transient vortex shedding and post-click orifice leakage chiff during staccato (18..100ms).
         let flow_env = self.reed_8ft.osc_amp() + 0.5 * self.reed_4ft.osc_amp();
         let vortex_burst = (d_valve + 1.85 * self.onset_transient_env) * flow_env;
-        let aero_drive = (flow_env * self.params.air_noise_scale + 7.5 * vortex_burst)
-            * self.valve_aperture;
+        let leak_chiff = if use_tran && self.params.staccato_chiff_gain > 1e-5 {
+            // Gate post-click vortex detachment after the first 17.5ms so the initial pallet click
+            // impulse (0..16ms) is uncontaminated while staccato jet turbulence (18..100ms) is enriched.
+            let post_click_gate = ((self.voice_samples as f32 * dt - 0.0175) * 120.0).clamp(0.0, 1.0);
+            self.params.staccato_chiff_gain
+                * post_click_gate
+                * self.valve_aperture
+                * flow_env
+                * self.onset_transient_env
+        } else {
+            0.0
+        };
+        let aero_drive =
+            (flow_env * self.params.air_noise_scale + 7.5 * vortex_burst + leak_chiff)
+                * self.valve_aperture;
         if aero_drive > 1e-5 && preset.air_turbulence_gain > 0.0 {
             self.noise_bp_z1 += 0.24 * (white - self.noise_bp_z1);
             let hp = self.noise_bp_z1 - self.noise_bp_z2;
@@ -283,7 +314,22 @@ impl BandoneonVoice {
             return (0.0, 0.0);
         }
 
-        let reed_mix = rad_8ft + dyn_4ft_gain * rad_4ft + mech_noise;
+        // Complementary bimorphic 8'/4' Hopf onset lag during the initial 16ms attack window:
+        // the lower-mass 4' octave reed responds immediately while the heavier 8' reed lags,
+        // enriching initial 2*f0 click transient energy without shifting total RMS or steady state.
+        let hopf_knee = self.params.reed_8ft.hopf_knee;
+        let (gain_8ft, gain_4ft) = if use_tran && hopf_knee > 1e-5 {
+            let onset_entrain = (1.0 - (self.voice_samples as f32 * dt) * 62.5).clamp(0.0, 1.0);
+            let w_hopf = hopf_knee * onset_entrain;
+            (
+                (1.0 - 0.14 * w_hopf).max(0.5),
+                dyn_4ft_gain * (1.0 + 0.18 * w_hopf),
+            )
+        } else {
+            (1.0, dyn_4ft_gain)
+        };
+
+        let reed_mix = gain_8ft * rad_8ft + gain_4ft * rad_4ft + mech_noise;
         (reed_mix, total_flow)
     }
 }

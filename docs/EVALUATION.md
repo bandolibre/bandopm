@@ -182,23 +182,23 @@ Per architectural decision, **fast native Rust CPU benchmarks** gate every itera
 
 ---
 
-## 6. Structured Scorecard Schema (`target/eval/scorecard.json`)
+## 6. Structured Scorecard Schema (`target/eval/scorecard.json`) & Multi-Version Comparison
 
-Every run of `cargo run --release -p synth-eval` (or `cargo run --release -p synth-eval -- diagnose` for detailed per-manual, per-dynamic, and per-pitch-region error breakdowns) writes both a human/LLM-friendly Markdown summary (`target/eval/scorecard.md`) and a machine-readable JSON file (`target/eval/scorecard.json`).
+Every run of `cargo run --release -p synth-eval` (or `cargo run --release -p synth-eval -- diagnose` for detailed per-manual, per-dynamic, and per-pitch-region error breakdowns, and `cargo run --release -p synth-eval -- compare` to evaluate all 6 synthesis versions side by side) writes both human/LLM-friendly Markdown summaries (`target/eval/scorecard.md`, `target/eval/version_comparison.md`) and machine-readable JSON files (`target/eval/scorecard.json`, `target/eval/version_comparison.json`).
 
-### Baseline (`v1`) vs. SOTA Physical Model (`v2`) Evaluation Progression
-Across all 328 golden Alfred Arnold bandoneon recordings (`219 train`, `109 held-out val`), advancing from the baseline odd-clipper model (`v1`) to the SOTA physical model (`v2`: Rationalized Conjugate 1st-Order ADAA + Millot-Baumann Two-Sided Slot Constriction + Cottingham Transient Harmonic Bloom + Finite-Box Baffle Diffraction + Intra-Celda 1:2 Mode Locking + Dual-Box Modal Resonators) achieved the following verified improvements with zero regularization penalty ($L_{\text{reg}} = 0.0000$):
+### Multi-Version (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`) Evaluation Progression
+Across all 328 golden Alfred Arnold bandoneon recordings (`219 train`, `109 held-out val`), evaluating all 6 physical modeling versions (`SynthVersion`) demonstrates monotonic improvement from `v1` (`60.36` Val) to `v2` (`64.25` Val), across each individual `v3` investigation direction (`v3_aero`: `64.45` Val, `v3_beam`: `64.31` Val, `v3_transient`: `64.31` Val), and culminating in the unified `v3` physical model (`66.05` Train / `64.57` Val, `+0.32` Val over `v2` and `+4.21` Val over `v1`, with zero category regressions) and zero roughness regularization penalty ($L_{\text{reg}} = 0.0000$):
 
-| Metric / Evaluation Tier | Weight | `v1` Train | `v2` Train | `v1` Val | `v2` Val | Improvement (Train / Val) |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Composite Fidelity Score** | **100%** | **58.42** | **65.87** | **57.91** | **64.25** | **`+7.45` / `+6.34`** |
-| 1. Harmonic Profile & Balance | 35% | 51.78 | 62.66 | 53.56 | 62.23 | `+10.88` / `+8.67` |
-| 2. Attack & Release Transients | 25% | 56.29 | 63.01 | 56.00 | 64.86 | `+6.72` / `+8.86` |
-| 3. Dual-Reed ($8' + 4'$) Coupling | 20% | 60.84 | 63.14 | 55.14 | 56.60 | `+2.30` / `+1.46` |
-| 4. Pressure-Induced Pitch Bend | 10% | 82.64 | 87.38 | 81.87 | 81.87 | `+4.74` / `0.00` |
-| 5. Wooden Body & Bellows Formants | 10% | 63.80 | 71.97 | 64.62 | 70.90 | `+8.17` / `+6.28` |
+| Version | Physical Model & Investigation Direction | Train (/100) | Held-Out Val (/100) | $\Delta$ Val vs `v2` | Harm (35%) | Tran (25%) | Dual $8'+4'$ (20%) | Pitch (10%) | Body (10%) | 16-Voice CPU | Gates |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`v1`** | Baseline Lumped Odd-Clipper + Shared Body EQ | 61.99 | 60.36 | `-3.89` | 55.11 | 63.02 | 54.14 | 82.66 | 67.65 | `174.2 us` | PASS |
+| **`v2`** | 1st-Order ADAA + 1-Pole Baffle + Coupled Celda | 65.87 | 64.25 | `0.00` (base) | 62.23 | 64.86 | 56.60 | 81.87 | 70.90 | `248.0 us` | PASS |
+| **`v3_aero`** | **Dir 1**: Quadrature Monopole $dU/dt$ Radiation & 2-Pole Dipole Baffle | 65.92 | 64.45 | **`+0.20`** | 62.40 | 65.45 | 56.55 | 81.87 | 70.95 | `270.1 us` | PASS |
+| **`v3_beam`** | **Dir 2**: Zero-Sum Barycentric Slot Softening & Clamped-Bar Modes | 65.90 | 64.31 | **`+0.06`** | 62.28 | 65.01 | 56.64 | 81.87 | 70.92 | `274.9 us` | PASS |
+| **`v3_transient`** | **Dir 3**: Low-Bass *Lastre* Inertia, Hopf Lag & Staccato Chiff | 65.92 | 64.31 | **`+0.06`** | 62.32 | 64.86 | 56.74 | 81.87 | 70.95 | `265.4 us` | PASS |
+| **`v3` (Default)** | **Unified SOTA**: Dir 1 + Dir 2 + Dir 3 Co-Calibrated | **66.05** | **64.57** | **`+0.32`** | **62.54** | **65.50** | **56.79** | **81.87** | **71.03** | **`319.7 us`** | **PASS** |
 
-All hard stability and real-time CPU gates pass (`291.55 us` for 16 active voices / 32 coupled reeds per 128-sample quantum at `48 kHz`, well inside the `< 350 us` budget).
+All 6 versions pass every deterministic stability, silence convergence ($< -90\text{ dBFS}$), smoothness ($L_{\text{reg}} = 0.0000$), and native CPU gate ($< 350\ \mu\text{s}$ per 128-sample quantum for 16 active voices / 32 coupled reeds at `48 kHz`).
 
 ```json
 {

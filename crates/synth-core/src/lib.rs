@@ -14,7 +14,10 @@ pub mod voice;
 
 pub use bellows::BellowsModel;
 pub use body::BodyResonator;
-pub use preset::{BandoneonPreset, BodyModeParam, Hand, ManualScalingParams, ResolvedNoteParams};
+pub use preset::{
+    BandoneonPreset, BodyModeParam, Hand, KeyboardMode, ManualScalingParams, ResolvedNoteParams,
+    SynthVersion,
+};
 pub use voice::BandoneonVoice;
 
 /// Maximum simultaneous polyphonic voices (16 voices = 32 coupled free reeds).
@@ -41,6 +44,12 @@ pub enum MidiEvent {
     ExpressionNormalized(f32),
     /// Enable/disable Table Mode (practice without moving bellows).
     SetTableMode(bool),
+    /// Select keyboard/channel routing mode (`DualChannelBandolibre` vs `PianistSplit`).
+    SetKeyboardMode(KeyboardMode),
+    /// Set split MIDI note (`36..=96`, default `60 = C4`) used in `KeyboardMode::PianistSplit`.
+    SetSplitNote(u8),
+    /// Set stereo separation width between Left (*Bajos*) and Right (*Cantabile*) manuals in `[0.0, 1.0]`.
+    SetStereoWidth(f32),
     /// Immediately silence all voices.
     AllNotesOff,
 }
@@ -56,6 +65,9 @@ pub struct SynthEngine {
     last_total_flow: f32,
     event_counter: u64,
     cc11_msb: u8,
+    keyboard_mode: KeyboardMode,
+    split_note: u8,
+    stereo_width: f32,
 }
 
 impl SynthEngine {
@@ -81,11 +93,21 @@ impl SynthEngine {
             last_total_flow: 0.0,
             event_counter: 0,
             cc11_msb: 0,
+            keyboard_mode: KeyboardMode::DualChannelBandolibre,
+            split_note: 60,
+            stereo_width: 0.84,
         }
     }
 
-    /// Updates the active preset without allocating memory.
+    /// Updates the active preset and refreshes any active voices.
     pub fn set_preset(&mut self, preset: BandoneonPreset) {
+        self.apply_preset_ref(&preset);
+        self.preset = preset;
+    }
+
+    /// Updates the active preset from a reference without allocating or deallocating heap memory.
+    /// Real-time audio thread safe.
+    pub fn apply_preset_ref(&mut self, preset: &BandoneonPreset) {
         self.bellows.set_smoothing(
             preset.bellows_curve_gamma,
             preset.bellows_attack_ms,
@@ -93,11 +115,54 @@ impl SynthEngine {
         );
         self.body
             .update_modes(&preset.left_body_modes, &preset.body_modes);
-        self.preset = preset;
+        for v in &mut self.voices {
+            v.refresh_preset(preset);
+        }
+        self.preset.copy_params_from(preset);
     }
 
     pub fn preset(&self) -> &BandoneonPreset {
         &self.preset
+    }
+
+    #[inline]
+    pub fn version(&self) -> SynthVersion {
+        self.preset.version
+    }
+
+    /// Switches the active synthesis model version and its calibrated preset.
+    pub fn set_version(&mut self, version: SynthVersion) {
+        self.set_preset(BandoneonPreset::for_version(version));
+    }
+
+    #[inline]
+    pub fn keyboard_mode(&self) -> KeyboardMode {
+        self.keyboard_mode
+    }
+
+    #[inline]
+    pub fn set_keyboard_mode(&mut self, mode: KeyboardMode) {
+        self.keyboard_mode = mode;
+    }
+
+    #[inline]
+    pub fn split_note(&self) -> u8 {
+        self.split_note
+    }
+
+    #[inline]
+    pub fn set_split_note(&mut self, note: u8) {
+        self.split_note = note.clamp(Hand::LEFT_MIN_MIDI, Hand::RIGHT_MAX_MIDI);
+    }
+
+    #[inline]
+    pub fn stereo_width(&self) -> f32 {
+        self.stereo_width
+    }
+
+    #[inline]
+    pub fn set_stereo_width(&mut self, width: f32) {
+        self.stereo_width = width.clamp(0.0, 1.0);
     }
 
     pub fn reset(&mut self) {
@@ -115,13 +180,39 @@ impl SynthEngine {
         self.last_total_flow = 0.0;
     }
 
-    /// Infers the default bandoneon manual (`Hand`) from MIDI note or MIDI channel if not specified.
+    /// Infers the default bandoneon manual (`Hand`) from MIDI note if not specified.
     #[inline]
     pub fn default_hand_for_note(midi_note: u8) -> Hand {
         if midi_note < 60 {
             Hand::LeftBajos
         } else {
             Hand::RightCantabile
+        }
+    }
+
+    /// Resolves which bandoneon keyboard (`Hand`) a raw MIDI message on 0-based channel `ch`
+    /// and MIDI pitch `note` maps to under the current `KeyboardMode`.
+    #[inline]
+    pub fn resolve_hand_for_channel(&self, ch: u8, note: u8) -> Hand {
+        match self.keyboard_mode {
+            KeyboardMode::DualChannelBandolibre => match ch {
+                0 => Hand::LeftBajos,
+                1 => Hand::RightCantabile,
+                _ => {
+                    if note < self.split_note {
+                        Hand::LeftBajos
+                    } else {
+                        Hand::RightCantabile
+                    }
+                }
+            },
+            KeyboardMode::PianistSplit => {
+                if note < self.split_note {
+                    Hand::LeftBajos
+                } else {
+                    Hand::RightCantabile
+                }
+            }
         }
     }
 
@@ -176,6 +267,15 @@ impl SynthEngine {
             MidiEvent::SetTableMode(enabled) => {
                 self.bellows.table_mode = enabled;
             }
+            MidiEvent::SetKeyboardMode(mode) => {
+                self.keyboard_mode = mode;
+            }
+            MidiEvent::SetSplitNote(note) => {
+                self.set_split_note(note);
+            }
+            MidiEvent::SetStereoWidth(width) => {
+                self.set_stereo_width(width);
+            }
             MidiEvent::AllNotesOff => {
                 for v in &mut self.voices {
                     v.active = false;
@@ -187,21 +287,19 @@ impl SynthEngine {
     }
 
     /// Parses raw 3-byte MIDI messages matching Bandolibre firmware conventions:
-    /// - `L_MIDI_CH = 0` (MIDI Ch 1) = Left Wing (`Hand::LeftBajos`)
-    /// - `R_MIDI_CH = 1` (MIDI Ch 2) = Right Wing (`Hand::RightCantabile`)
+    /// - In `KeyboardMode::DualChannelBandolibre` (default):
+    ///   - `L_MIDI_CH = 0` (MIDI Ch 1) = Left Wing (`Hand::LeftBajos`: warm bass box + left pan)
+    ///   - `R_MIDI_CH = 1` (MIDI Ch 2) = Right Wing (`Hand::RightCantabile`: bright treble grill + right pan)
+    ///   - Overlapping notes (`C4..B4`, MIDI 60..71) are routed strictly by channel so both manuals
+    ///     can play the same pitch with their distinct tone and stereo position.
+    /// - In `KeyboardMode::PianistSplit`:
+    ///   - Notes `< split_note` (default `C4 = 60`) route to `Hand::LeftBajos` and `>= split_note`
+    ///     route to `Hand::RightCantabile` regardless of MIDI channel.
     /// - Supports both 7-bit `CC#11` and 14-bit `CC#11` (MSB) + `CC#43` (LSB) expression pairs.
     pub fn handle_raw_midi(&mut self, status: u8, data1: u8, data2: u8) {
         let cmd = status & 0xF0;
         let ch = status & 0x0F;
-        let hand = if ch == 0 {
-            Hand::LeftBajos
-        } else if ch == 1 {
-            Hand::RightCantabile
-        } else if data1 < 60 {
-            Hand::LeftBajos
-        } else {
-            Hand::RightCantabile
-        };
+        let hand = self.resolve_hand_for_channel(ch, data1);
         match cmd {
             0x90 => self.handle_midi_event(MidiEvent::NoteOn {
                 note: data1,
@@ -293,13 +391,18 @@ impl SynthEngine {
     }
 
     /// Renders a block of stereo audio in real time (zero allocations).
+    /// Left-hand (*Bajos*, Channel 1) voices pass through `left_body_modes` and pan to Left;
+    /// Right-hand (*Cantabile*, Channel 2) voices pass through `body_modes` and pan to Right.
     pub fn render(&mut self, out_left: &mut [f32], out_right: &mut [f32]) {
         let frames = out_left.len().min(out_right.len());
         let gain = self.preset.master_gain;
+        let w = self.stereo_width.clamp(0.0, 1.0);
+        let pan_main = 0.5 + 0.5 * w;
+        let pan_cross = 0.5 - 0.5 * w;
         for i in 0..frames {
             let (body_l, body_r) = self.step_manuals_and_body();
-            let stereo_l = (0.78 * body_l + 0.22 * body_r) * gain;
-            let stereo_r = (0.22 * body_l + 0.78 * body_r) * gain;
+            let stereo_l = (pan_main * body_l + pan_cross * body_r) * gain;
+            let stereo_r = (pan_cross * body_l + pan_main * body_r) * gain;
             out_left[i] = Self::soft_limit(stereo_l);
             out_right[i] = Self::soft_limit(stereo_r);
         }
@@ -376,5 +479,202 @@ mod tests {
             tail_rms < 3.16e-5,
             "Did not converge to <-90 dBFS (tail_rms = {tail_rms})"
         );
+    }
+
+    #[test]
+    fn test_all_six_versions_and_live_version_switching() {
+        let presets: [BandoneonPreset; 6] =
+            core::array::from_fn(|i| BandoneonPreset::for_version(SynthVersion::from_u8(i as u8)));
+
+        for (idx, ver) in SynthVersion::ALL.iter().copied().enumerate() {
+            assert_eq!(ver.as_u8() as usize, idx);
+            assert_eq!(SynthVersion::from_u8(ver.as_u8()), ver);
+            assert_eq!(SynthVersion::from_slug(ver.slug()), Some(ver));
+            assert!(
+                presets[idx].roughness_penalty() < 1e-6,
+                "Expected zero roughness penalty on {}",
+                ver.slug()
+            );
+
+            let mut synth = SynthEngine::new(48000.0, presets[idx].clone());
+            assert_eq!(synth.version(), ver);
+
+            // Extreme compass boundary notes (MIDI 36 LeftBajos, MIDI 96 RightCantabile)
+            synth.handle_midi_event(MidiEvent::NoteOn {
+                note: 36,
+                velocity: 127,
+                hand: Hand::LeftBajos,
+            });
+            synth.handle_midi_event(MidiEvent::NoteOn {
+                note: 96,
+                velocity: 127,
+                hand: Hand::RightCantabile,
+            });
+            synth.handle_midi_event(MidiEvent::ControlChange11(127));
+
+            let mut buf_l = [0.0f32; 2400];
+            let mut buf_r = [0.0f32; 2400];
+            synth.render(&mut buf_l, &mut buf_r);
+
+            for (&l, &r) in buf_l.iter().zip(buf_r.iter()) {
+                assert!(
+                    l.is_finite() && r.is_finite(),
+                    "Non-finite sample on {}",
+                    ver.slug()
+                );
+            }
+            let rms = (buf_l.iter().map(|x| x * x).sum::<f32>() / buf_l.len() as f32).sqrt();
+            assert!(rms > 0.005, "Silent output on {}", ver.slug());
+
+            // Live mid-stream version switching across all 6 versions while extreme notes are held
+            for next_preset in &presets {
+                synth.apply_preset_ref(next_preset);
+                assert_eq!(synth.version(), next_preset.version);
+                let mut q_l = [0.0f32; 128];
+                let mut q_r = [0.0f32; 128];
+                synth.render(&mut q_l, &mut q_r);
+                for (&l, &r) in q_l.iter().zip(q_r.iter()) {
+                    assert!(l.is_finite() && r.is_finite());
+                    assert!(l.abs() <= 1.0 && r.abs() <= 1.0);
+                }
+            }
+
+            // Verify sample-to-sample continuity (zero click/step discontinuities) on mid-compass
+            // A2 (110 Hz LeftBajos) + A4 (440 Hz RightCantabile) during rapid quantum switching
+            synth.reset();
+            synth.handle_midi_event(MidiEvent::NoteOn {
+                note: 45,
+                velocity: 100,
+                hand: Hand::LeftBajos,
+            });
+            synth.handle_midi_event(MidiEvent::NoteOn {
+                note: 69,
+                velocity: 100,
+                hand: Hand::RightCantabile,
+            });
+            synth.handle_midi_event(MidiEvent::ControlChange11(100));
+            synth.render(&mut buf_l, &mut buf_r);
+
+            let mut prev_l = *buf_l.last().unwrap();
+            let mut prev_r = *buf_r.last().unwrap();
+            for (step_i, &ver_idx) in [0usize, 5, 1, 2, 3, 4, 0, 5, 2, 4, 1].iter().enumerate() {
+                let next_preset = &presets[ver_idx];
+                synth.apply_preset_ref(next_preset);
+                assert_eq!(synth.version(), next_preset.version);
+                let cc11 = (60 + (step_i * 5) % 60) as u8;
+                synth.handle_midi_event(MidiEvent::ControlChange11(cc11));
+                let mut q_l = [0.0f32; 128];
+                let mut q_r = [0.0f32; 128];
+                synth.render(&mut q_l, &mut q_r);
+                for (&l, &r) in q_l.iter().zip(q_r.iter()) {
+                    assert!(l.is_finite() && r.is_finite());
+                    assert!(
+                        (l - prev_l).abs() < 0.28 && (r - prev_r).abs() < 0.28,
+                        "Discontinuity detected on live version switch to {}: dl={}, dr={}",
+                        next_preset.version.slug(),
+                        (l - prev_l).abs(),
+                        (r - prev_r).abs()
+                    );
+                    prev_l = l;
+                    prev_r = r;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_dual_keyboard_overlap_channel_tone_and_panning() {
+        let preset = BandoneonPreset::default_bandoneon();
+        let mut synth = SynthEngine::new(48000.0, preset);
+        assert_eq!(synth.keyboard_mode(), KeyboardMode::DualChannelBandolibre);
+
+        // MIDI 69 (A4 = 440 Hz) is in the 12-semitone overlap octave (C4..B4, MIDI 60..71)
+        // present on both Bandolibre keyboards.
+        assert!(Hand::is_overlap_note(69));
+
+        // 1. Trigger A4 (MIDI 69) on MIDI Channel 1 (0x90 -> LeftBajos)
+        synth.handle_raw_midi(0xB0, 11, 100);
+        synth.handle_raw_midi(0x90, 69, 100);
+        let mut ch1_l = [0.0f32; 4800];
+        let mut ch1_r = [0.0f32; 4800];
+        synth.render(&mut ch1_l, &mut ch1_r);
+        let rms_ch1_l = (ch1_l[2400..].iter().map(|x| x * x).sum::<f32>() / 2400.0).sqrt();
+        let rms_ch1_r = (ch1_r[2400..].iter().map(|x| x * x).sum::<f32>() / 2400.0).sqrt();
+        assert!(
+            rms_ch1_l > 5.0 * rms_ch1_r,
+            "Expected Ch 1 (LeftBajos) A4 to pan predominantly Left: L={rms_ch1_l}, R={rms_ch1_r}"
+        );
+
+        // 2. Trigger the exact same pitch A4 (MIDI 69) on MIDI Channel 2 (0x91 -> RightCantabile)
+        synth.reset();
+        synth.handle_raw_midi(0xB0, 11, 100);
+        synth.handle_raw_midi(0x91, 69, 100);
+        let mut ch2_l = [0.0f32; 4800];
+        let mut ch2_r = [0.0f32; 4800];
+        synth.render(&mut ch2_l, &mut ch2_r);
+        let rms_ch2_l = (ch2_l[2400..].iter().map(|x| x * x).sum::<f32>() / 2400.0).sqrt();
+        let rms_ch2_r = (ch2_r[2400..].iter().map(|x| x * x).sum::<f32>() / 2400.0).sqrt();
+        assert!(
+            rms_ch2_r > 5.0 * rms_ch2_l,
+            "Expected Ch 2 (RightCantabile) A4 to pan predominantly Right: L={rms_ch2_l}, R={rms_ch2_r}"
+        );
+
+        // Verify distinct tone/spectral brightness (zero-crossing rate / high-frequency derivative energy)
+        // between Ch 1 (warm Bajos wooden box) and Ch 2 (bright Cantabile metal grill) on the same note 69
+        let hf_ratio_ch1 = (ch1_l[2401..]
+            .windows(2)
+            .map(|w| (w[1] - w[0]).powi(2))
+            .sum::<f32>()
+            / 2399.0)
+            .sqrt()
+            / rms_ch1_l.max(1e-6);
+        let hf_ratio_ch2 = (ch2_r[2401..]
+            .windows(2)
+            .map(|w| (w[1] - w[0]).powi(2))
+            .sum::<f32>()
+            / 2399.0)
+            .sqrt()
+            / rms_ch2_r.max(1e-6);
+        assert!(
+            (hf_ratio_ch2 - hf_ratio_ch1).abs() > 0.01,
+            "Expected distinct tone between LeftBajos and RightCantabile on overlap note 69: hf1={hf_ratio_ch1}, hf2={hf_ratio_ch2}"
+        );
+
+        // 3. Trigger A4 (MIDI 69) on BOTH Channel 1 and Channel 2 simultaneously (unison across manuals)
+        synth.reset();
+        synth.handle_raw_midi(0xB0, 11, 100);
+        synth.handle_raw_midi(0x90, 69, 100);
+        synth.handle_raw_midi(0x91, 69, 100);
+        let active_count = synth.voices.iter().filter(|v| v.active && v.key_down).count();
+        assert_eq!(
+            active_count, 2,
+            "Expected 2 simultaneous voices when overlap note 69 is held on both Ch 1 and Ch 2"
+        );
+
+        // Releasing Ch 1 (0x80) leaves Ch 2 (RightCantabile) still held
+        synth.handle_raw_midi(0x80, 69, 64);
+        let held_hands: Vec<Hand> = synth
+            .voices
+            .iter()
+            .filter(|v| v.active && v.key_down)
+            .map(|v| v.hand)
+            .collect();
+        assert_eq!(held_hands, vec![Hand::RightCantabile]);
+
+        // 4. Verify PianistSplit mode routes a single-channel MIDI piano controller by split_note
+        synth.reset();
+        synth.set_keyboard_mode(KeyboardMode::PianistSplit);
+        synth.set_split_note(60); // C4 split
+        synth.handle_raw_midi(0x90, 48, 100); // C3 on Ch 1 -> LeftBajos (< 60)
+        synth.handle_raw_midi(0x90, 64, 100); // E4 on Ch 1 -> RightCantabile (>= 60)
+        let has_left = synth
+            .voices
+            .iter()
+            .any(|v| v.active && v.midi_note == 48 && v.hand == Hand::LeftBajos);
+        let has_right = synth
+            .voices
+            .iter()
+            .any(|v| v.active && v.midi_note == 64 && v.hand == Hand::RightCantabile);
+        assert!(has_left && has_right);
     }
 }

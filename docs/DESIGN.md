@@ -70,11 +70,16 @@ flowchart TD
 
 ## 3. Bandolibre MIDI & Expression Architecture
 
-### 3.1 Input Signals from Bandolibre
+### 3.1 Input Signals from Bandolibre & Dual-Manual Channel Routing (`KeyboardMode`)
 The Bandolibre firmware transmits:
-1. **`CC#11` (Expression, 0–127, or 14-bit with `CC#43` if enabled)**: Continuous measurement of the bellows blade deflection.
-2. **`Note On` (`0x90`, `note`, `velocity`)**: Sent when a Hall-effect button crosses its actuation threshold. On the Bandolibre, `velocity` reflects the bellows blade state at the instant of key depression (or a fixed constant in *Table Mode*).
-3. **`Note Off` (`0x80`, `note`, `release_velocity`)**: Sent when the button is released.
+1. **Two Keyboards on Separate MIDI Channels with a 12-Semitone Overlapping Octave (`C4..B4`, `MIDI 60..71`)**:
+   - **Left Keyboard (*Bajos*, MIDI Channel 1 / `0x90`, `L_MIDI_CH = 0`)**: Covers `C2 .. B4` (`MIDI 36..=71`). Simulated with `left_bajos` physical reed scaling, the 6-stage Left wooden bass box resonator (`left_body_modes`, strong 255–495 Hz woody formant), and **Left stereo panning**.
+   - **Right Keyboard (*Cantabile*, MIDI Channel 2 / `0x91`, `R_MIDI_CH = 1`)**: Covers `C4 .. C7` (`MIDI 60..=96`). Simulated with `right_cantabile` physical reed scaling, the 6-stage Right treble metal grill resonator (`body_modes`, strong 1–4 kHz singing formants), and **Right stereo panning**.
+   - **Overlapping Octave (`C4 .. B4`, `MIDI 60..=71`)**: Exists on **both** keyboards. In `KeyboardMode::DualChannelBandolibre` (default), notes in `C4..B4` played on Channel 1 vs Channel 2 produce their respective manual's distinct tone and stereo position, and can even be played on both channels simultaneously (allocating two independent voices `(note, Hand::LeftBajos)` and `(note, Hand::RightCantabile)`).
+   - **Pianist Split Mode (`KeyboardMode::PianistSplit`)**: For pianists using the unified single-keyboard view or a standard 1-channel MIDI piano controller, incoming notes on any channel are split at `split_note` (default `C4 = 60`), routing `< split_note` to `Hand::LeftBajos` (Left tone & pan) and `>= split_note` to `Hand::RightCantabile` (Right tone & pan).
+2. **`CC#11` (Expression, 0–127, or 14-bit with `CC#43` if enabled)**: Continuous measurement of the bellows blade deflection.
+3. **`Note On` (`0x90`/`0x91`, `note`, `velocity`)**: Sent when a Hall-effect button crosses its actuation threshold. On the Bandolibre, `velocity` reflects the bellows blade state at the instant of key depression (or a fixed constant in *Table Mode*).
+4. **`Note Off` (`0x80`/`0x81`, `note`, `release_velocity`)**: Sent when the button is released.
 
 ### 3.2 Reconciling `Note On` Velocity and Continuous `CC#11`
 In a physical bandoneon, button depression opens a mechanical **pallet valve** (*zapatilla*), while the bellows supply the **reservoir pressure** $P_{\text{bellows}}(t)$. We decouple these two physical actions while honoring both MIDI signals:
@@ -173,10 +178,28 @@ The acoustic pressure radiated by the reeds passes through two physically distin
 
 ---
 
-### 4.5 Hybrid Physics-Informed Fallback (Polyphony Scaling)
-If full time-domain ODE integration of 32 simultaneous reeds exceeds CPU budgets on lower-power mobile/browser devices, `synth-core` supports a modular `VoiceModel` trait with two interchangeable backends:
-1. **`FullPhysicalReedModel` (Default)**: Full coupled ODE + Bernoulli orifice solver per reed.
-2. **`ModalWavetableReedModel` (Bandoneon 2.0 Inspired)**: Uses the exact same physical bellows pressure, threshold hysteresis, and dual-reed activation dynamics, but replaces the inner ODE loop with pressure-indexed, phase-locked nonlinear wave-shaping / wavetable interpolation calibrated directly from the ODE model and real samples.
+### 4.5 Multi-Version Synthesis Architecture (`SynthVersion`: `v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`)
+To support rigorous scientific ablation studies and live interactive A/B comparison in the browser (`web/`), `synth-core` implements a first-class multi-version synthesis engine (`SynthVersion` in [`crates/synth-core/src/preset.rs`](file:///usr/local/google/home/plabatut/projects/synth/crates/synth-core/src/preset.rs)) with 6 selectable models:
+
+1. **`v1` (`V1Baseline`)**: Initial baseline lumped odd-clipper model ($u/\sqrt{1+u^2}$ without ADAA, 1-pole low-pass, single shared 6-mode body filter).
+2. **`v2` (`V2AdaaBaffle`)**: Previous SOTA baseline combining rationalized conjugate 1st-order ADAA, two-sided Millot-Baumann slot constriction, Cottingham harmonic bloom, 1-pole finite-baffle high-pass diffraction, coupled $8'+4'$ *celda* impedance, and dual-manual wooden box modal banks (`65.87` Train / `64.25` Val).
+3. **`v3_aero` (`V3AeroRadiation`, Investigation Direction 1 — Quadrature Monopole $\frac{dU}{dt}$ Jet Radiation & 2-Pole Sub-Baffle Dipole Diffraction)**:
+   - Grounded in *Ricot et al. (JASA 2005)* and *Puranik & Scavone (DAFx 2022)*.
+   - Models the high-frequency acoustic radiation from the reed slot and *celda* aperture as a superposition of 2nd-order sub-baffle dipole volume-flow radiation $U_{\text{lp2}}(t)$ (`baffle_hp1 - dipole_baffle_mix * baffle_lp_state2`) and its band-limited time derivative (monopole volume acceleration):
+     $$P_{\text{rad}}(t) = U_{\text{lp2}}(t) + \gamma_{\text{mono}}(u) \cdot (0.78 + 0.44 \Delta P_{\text{eff}}) \cdot \underbrace{\left(U_{\text{lp1}}(t) - U_{\text{lp2}}(t)\right)}_{\propto \, dU/dt \text{ (90}^\circ\text{ quadrature)}}$$
+   - Because $\frac{\omega_c^2}{(s+\omega_c)^2}$ (`lp_state2`) and $\frac{s\omega_c}{(s+\omega_c)^2}$ (`lp_state - lp_state2`) are strictly orthogonal ($90^\circ$ out of phase at all frequencies), $\gamma_{\text{mono}}(u)$ shapes upper-harmonic brightness across the manual compass without first-order cancellation of the fundamental $H_1$ (`65.92` Train / `64.45` Val).
+4. **`v3_beam` (`V3ClampedBar`, Investigation Direction 2 — Zero-Sum Barycentric Poiseuille-Bernoulli Slot Softening & Clamped-Bar Flexural Modes)**:
+   - Grounded in *Millot & Baumann (2007)* and *Puranik & Scavone (Forum Acusticum 2023)*.
+   - Models viscous Poiseuille boundary-layer friction inside the narrow rectangular reed-plate channel (`duty_bias_base` / `c_lin`) and pressure-driven blown-closed duty sharpening (`h3_notch_inject * (effective_p - 0.38)`), alongside a zero-sum barycentric 2nd Euler-Bernoulli clamped-bar flexural mode ($\omega_2 \approx 6\,\omega_1$, `clamped_bar_h6_gain`) computed via Chebyshev recurrences (`s3_skew`, `s6_raw`) with zero additional trig calls (`65.90` Train / `64.31` Val).
+5. **`v3_transient` (`V3TransientEntrain`, Investigation Direction 3 — Low-Bass *Lastre* Inertia, Bimorphic $8'/4'$ Hopf Onset Lag & Post-Click Staccato Chiff)**:
+   - Grounded in *Ramos et al. (CMJ 2023)* and *Cottingham (2001–2013)*.
+   - Models the tip-weight (*lastre*) mechanical startup inertia on low-bass *Bajos* reeds ($f < 118\text{ Hz}$, `C0..A#0`), complementary $8'/4'$ Hopf onset lag (`hopf_8ft_knee`) during the initial $16\text{ ms}$ attack window, velocity-coupled $4'$ octave bite (`staccato_4ft_boost`), and post-click ($t > 17.5\text{ ms}$) staccato vortex-detachment leakage chiff (`staccato_chiff_gain`) (`65.92` Train / `64.31` Val).
+6. **`v3` (`V3Unified`, Default SOTA Physical Model)**:
+   - Combines all three validated physical modeling directions (`v3_aero` + `v3_beam` + `v3_transient`) with joint multi-parameter coordinate calibration across the 328-recording Alfred Arnold dataset (`66.05` Train / `64.57` Val).
+
+To guarantee real-time audio safety and $< 350\ \mu\text{s}$ 16-voice CPU performance:
+- Per-reed physical parameters (`reed_8ft` and `reed_4ft` of type `ResolvedReedParams`) are pre-resolved at `NoteOn` and preset refresh, eliminating per-sample `if is_4ft` branches and divisions from `FreeReed::tick`.
+- In `synth-wasm`, all 6 `BandoneonPreset` instances are pre-allocated at `synth_create` initialization time; calling `synth_set_version` on the WebAudio `AudioWorklet` thread invokes `SynthEngine::apply_preset_ref(&preset)`, copying scalar parameters and refreshing active voices in-place with **zero heap allocations**.
 
 ---
 
@@ -193,4 +216,4 @@ flowchart LR
     Scorecard --> AI["Single-Loop AI Iteration\n(Edits DSP Code & Smooth Pitch Scaling Laws)"]
 ```
 
-See [`docs/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/EVALUATION.md) for the exact mathematical definitions of the 5-tier loss hierarchy, signed physical error deltas, smooth pitch-scaling regularization ($L_{\text{reg}}$), and native CPU performance gates.
+See [`docs/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/docs/EVALUATION.md) for the exact mathematical definitions of the 5-tier loss hierarchy, signed physical error deltas, smooth pitch-scaling regularization ($L_{\text{reg}}$), native CPU performance gates, and the 6-version synthesis comparison table.

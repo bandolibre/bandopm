@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bandolibre Physical Modeling Synthesizer</title>
+  <title>BandoPM — Bandoneon Physical Modeling Synthesizer</title>
   <style>
     :root {
       --bg: #0f141c;
@@ -342,14 +342,273 @@
       text-transform: uppercase;
       opacity: 0.65;
     }
+    .key-overlap-pill {
+      font-size: 0.54rem;
+      font-weight: 800;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: rgba(168, 85, 247, 0.22);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.45);
+      margin-bottom: 1px;
+    }
+    .white-key .key-overlap-pill {
+      background: rgba(126, 34, 206, 0.14);
+      color: #6b21a8;
+      border-color: rgba(126, 34, 206, 0.35);
+    }
+    .piano-key.white-key.overlap-key {
+      background: linear-gradient(180deg, #ede9fe 0%, #f5f3ff 82%, #ddd6fe 100%);
+      border-color: #7c3aed;
+    }
+    .piano-key.black-key.overlap-key {
+      background: linear-gradient(180deg, #2e1065 0%, #1e1b4b 88%, #0f172a 100%);
+      border-color: #8b5cf6;
+    }
+    .piano-key.white-key.left-tint {
+      border-bottom: 4px solid #2f7d78;
+    }
+    .piano-key.white-key.right-tint {
+      border-bottom: 4px solid #d97706;
+    }
+
+    /* Dual Channel Stacked Keyboards & Pianist Split Divider */
+    .kbd-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .manual-lane {
+      background: #101620;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px 12px;
+    }
+    .manual-lane.left-lane {
+      border-left: 4px solid var(--push);
+    }
+    .manual-lane.right-lane {
+      border-left: 4px solid var(--pull);
+    }
+    .manual-lane.split-lane {
+      border-left: 4px solid var(--accent);
+    }
+    .manual-lane-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 0.80rem;
+    }
+    .manual-lane-title {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+    }
+    .ch-badge {
+      font-family: var(--mono);
+      font-size: 0.73rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+    .ch-badge.ch1 {
+      background: rgba(47, 125, 120, 0.25);
+      color: #5eead4;
+      border: 1px solid #2f7d78;
+    }
+    .ch-badge.ch2 {
+      background: rgba(217, 119, 6, 0.25);
+      color: #fcd34d;
+      border: 1px solid #d97706;
+    }
+    .ch-badge.overlap {
+      background: rgba(168, 85, 247, 0.20);
+      color: #d8b4fe;
+      border: 1px solid rgba(168, 85, 247, 0.5);
+    }
+    .manual-lane-meta {
+      font-size: 0.76rem;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+    .piano-container.compact-lane {
+      height: 195px;
+      min-width: 780px;
+    }
+    .split-divider {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: #f43f5e;
+      box-shadow: 0 0 10px #f43f5e;
+      z-index: 6;
+      pointer-events: none;
+    }
+    .split-divider-badge {
+      position: absolute;
+      top: 4px;
+      transform: translateX(-50%);
+      background: #f43f5e;
+      color: #fff;
+      font-family: var(--mono);
+      font-size: 0.66rem;
+      font-weight: 800;
+      padding: 2px 7px;
+      border-radius: 999px;
+      white-space: nowrap;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    }
+    .stereo-meters {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .stereo-meter-box {
+      background: #101620;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 9px;
+      font-size: 0.74rem;
+    }
+    .stereo-meter-head {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    /* Multi-Version Synthesis Selector & Comparison Table */
+    .version-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .ver-btn {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #101620;
+      color: var(--fg);
+      cursor: pointer;
+      transition: all 0.14s ease;
+      min-width: 155px;
+      text-align: left;
+    }
+    .ver-btn:hover {
+      border-color: var(--accent);
+      background: #151e2c;
+    }
+    .ver-btn.active {
+      border-color: #f59e0b;
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), rgba(47, 125, 120, 0.22));
+      box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+    }
+    .ver-btn-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      font-weight: 700;
+      font-size: 0.84rem;
+    }
+    .ver-score-pill {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      padding: 1px 6px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.14);
+      color: var(--accent);
+    }
+    .ver-btn.active .ver-score-pill {
+      background: #f59e0b;
+      color: #0f172a;
+      font-weight: 800;
+    }
+    .ver-btn-sub {
+      font-size: 0.72rem;
+      color: var(--muted);
+    }
+    .ver-desc-box {
+      background: #101620;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.83rem;
+      line-height: 1.45;
+      color: var(--fg);
+      margin-bottom: 12px;
+    }
+    .ver-desc-box strong {
+      color: #fbbf24;
+    }
+    .comp-table-wrap {
+      width: 100%;
+      overflow-x: auto;
+    }
+    table.comp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.80rem;
+      font-family: var(--mono);
+    }
+    table.comp-table th,
+    table.comp-table td {
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: right;
+      white-space: nowrap;
+    }
+    table.comp-table th:first-child,
+    table.comp-table td:first-child,
+    table.comp-table th:nth-child(2),
+    table.comp-table td:nth-child(2) {
+      text-align: left;
+    }
+    table.comp-table th {
+      color: var(--muted);
+      font-weight: 600;
+      background: #101620;
+      text-transform: uppercase;
+      font-size: 0.71rem;
+      letter-spacing: 0.04em;
+    }
+    table.comp-table tbody tr {
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    table.comp-table tbody tr:hover {
+      background: rgba(56, 189, 248, 0.08);
+    }
+    table.comp-table tbody tr.active-row {
+      background: rgba(245, 158, 11, 0.15);
+      font-weight: 700;
+    }
+    .delta-pos { color: #34d399; }
+    .delta-neg { color: #f87171; }
+    .delta-base { color: var(--muted); }
   </style>
 </head>
 <body>
   <div class="container">
     <header>
       <div class="brand">
-        <h1>Bandolibre Physical Modeling Synthesizer</h1>
-        <div class="sub">WebAssembly AudioWorklet &bull; Auto-Connects to Bandolibre USB-MIDI &bull; Velocity &amp; CC#11 Interactive Keyboard</div>
+        <h1>BandoPM <span style="font-weight:400; color:var(--accent); font-size:1.02rem;">&mdash; Bandoneon Physical Modeling Synthesizer</span></h1>
+        <div class="sub">Real-Time Bandoneon Physical Modeling for Bandolibre &bull; WebAssembly AudioWorklet &bull; Dual MIDI Channel &amp; Pianist Split Keyboards</div>
       </div>
 
       <div class="midi-connect-bar">
@@ -368,10 +627,12 @@
       <div class="card">
         <div class="card-header">
           <h2>Bellows Expression (CC#11) &amp; Engine Controls</h2>
-          <div style="display:flex; gap:8px;">
+          <div style="display:flex; flex-wrap:wrap; gap:8px;">
             <button id="btn-start" class="btn-primary">Enable Sound</button>
             <button id="btn-demo" class="btn-amber">Play Tango Swell</button>
-            <button id="btn-tone" class="btn-primary" style="background:#334155; border-color:#475569;" title="Play a 250ms 440Hz WebAudio reference beep to test your browser speaker output">Test Speaker Beep</button>
+            <button id="btn-overlap-demo" class="btn-primary" style="background:#7e22ce; border-color:#a855f7;" title="Play overlapping notes E4 & A4 on Ch 1 (Left Bajos), then Ch 2 (Right Cantabile), then both together to hear tone & panning differences">Compare Overlap (Ch 1 vs Ch 2)</button>
+            <button id="btn-ab-cycle" class="btn-primary" style="background:#0284c7; border-color:#38bdf8;" title="Automatically cycle through all 6 synthesis versions while playing a chord">A/B Cycle All 6 Versions</button>
+            <button id="btn-tone" class="btn-primary" style="background:#334155; border-color:#475569;" title="Play a 250ms 440Hz WebAudio reference beep to test your browser speaker output">Test Beep</button>
             <button id="btn-panic" class="btn-danger">All Notes Off</button>
           </div>
         </div>
@@ -385,13 +646,23 @@
           <div class="bar-track"><div id="cc11Bar" class="bar-fill" style="width:71%;"></div></div>
         </div>
 
-        <div class="meter-group" style="margin-bottom:0;">
-          <div class="meter-label">
-            <span>Last Triggered Note-On Velocity (Blade Impulse)</span>
-            <strong id="velReadout">Vel: —</strong>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="meter-group" style="margin-bottom:0;">
+            <div class="meter-label">
+              <span>Last Note-On Velocity</span>
+              <strong id="velReadout">Vel: —</strong>
+            </div>
+            <div class="bar-track" style="height:10px;">
+              <div id="velBar" class="bar-fill" style="width:0%; background:linear-gradient(90deg, #38bdf8, #818cf8);"></div>
+            </div>
           </div>
-          <div class="bar-track" style="height:10px;">
-            <div id="velBar" class="bar-fill" style="width:0%; background:linear-gradient(90deg, #38bdf8, #818cf8);"></div>
+
+          <div class="meter-group" style="margin-bottom:0;">
+            <div class="meter-label">
+              <span>Left / Right Stereo Pan Width</span>
+              <strong id="stereoWidthReadout">84% (92% L / 8% R)</strong>
+            </div>
+            <input id="stereoWidthSlider" type="range" min="0" max="100" value="84" style="width:100%; accent-color:#38bdf8; cursor:pointer;" />
           </div>
         </div>
 
@@ -402,42 +673,111 @@
           </label>
           <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
             <input id="sustainHoldToggle" type="checkbox" />
-            <span>Latch / Hold Notes (click multiple keys to build a chord, then drag up/down to pump bellows)</span>
+            <span>Latch / Hold Notes (click multiple keys to build a chord, then switch versions or drag up/down)</span>
           </label>
         </div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <h2>Real-Time Acoustic Output &amp; MIDI Monitor</h2>
+          <h2>Real-Time Stereo Output (Ch 1 Left vs Ch 2 Right) &amp; MIDI Monitor</h2>
           <span id="audioStatusBadge" class="bw-badge">Audio: Standby</span>
         </div>
-        <canvas id="scope-canvas" width="560" height="118"></canvas>
+        <div class="stereo-meters">
+          <div class="stereo-meter-box">
+            <div class="stereo-meter-head">
+              <span style="color:#5eead4; font-weight:700;">L • Ch 1 Bajos (Bass Box)</span>
+              <span id="leftMeterText">0%</span>
+            </div>
+            <div class="bar-track" style="height:8px;">
+              <div id="leftMeterBar" class="bar-fill" style="width:0%; background:linear-gradient(90deg, #2f7d78, #2dd4bf);"></div>
+            </div>
+          </div>
+          <div class="stereo-meter-box">
+            <div class="stereo-meter-head">
+              <span style="color:#fcd34d; font-weight:700;">R • Ch 2 Cantabile (Treble Grill)</span>
+              <span id="rightMeterText">0%</span>
+            </div>
+            <div class="bar-track" style="height:8px;">
+              <div id="rightMeterBar" class="bar-fill" style="width:0%; background:linear-gradient(90deg, #d97706, #fbbf24);"></div>
+            </div>
+          </div>
+        </div>
+        <canvas id="scope-canvas" width="560" height="100"></canvas>
         <div id="midi-log"></div>
+      </div>
+    </div>
+
+    <!-- Multi-Version Synthesis Selector & Acoustic Comparison Scorecard -->
+    <div class="card">
+      <div class="card-header">
+        <h2>Synthesis Model Version Selector &amp; Live A/B Acoustic Comparison</h2>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <label for="versionSelect" style="font-size:0.80rem; color:var(--muted);">Active Engine:</label>
+          <select id="versionSelect" aria-label="Select Synthesis Model Version" style="min-width:290px;"></select>
+        </div>
+      </div>
+
+      <div id="versionPills" class="version-pills"></div>
+      <div id="versionDescBox" class="ver-desc-box"></div>
+
+      <div class="comp-table-wrap">
+        <table class="comp-table" aria-label="Multi-Version Synthesis Evaluation Comparison">
+          <thead>
+            <tr>
+              <th>Version</th>
+              <th>Physical Modeling Architecture &amp; Investigation Direction</th>
+              <th>Train (/100)</th>
+              <th>Held-Out Val (/100)</th>
+              <th>&Delta; Val vs v2</th>
+              <th>Harm (35%)</th>
+              <th>Tran (25%)</th>
+              <th>8'+4' (20%)</th>
+              <th>Pitch (10%)</th>
+              <th>Body (10%)</th>
+              <th>16-Voice CPU</th>
+            </tr>
+          </thead>
+          <tbody id="versionTableBody"></tbody>
+        </table>
       </div>
     </div>
 
     <div class="card">
       <div class="kbd-toolbar">
-        <div style="display:flex; align-items:center; gap:12px;">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px;">
           <h2 style="margin:0; font-size:0.95rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--accent);">
-            Interactive Velocity &amp; Continuous CC#11 Keyboard
+            Bandolibre Dual-Channel &amp; Pianist Split Keyboards
           </h2>
-          <select id="manualSelect" style="min-width:220px;">
-            <option value="split">Split Compass: Left Bajos (C2..B3) + Right Cantabile (C4..C6)</option>
-            <option value="right">Right Wing Only — Cantabile (Ch 2, C4..C6)</option>
-            <option value="left">Left Wing Only — Bajos (Ch 1, C2..B4)</option>
+          <label for="manualSelect" style="font-size:0.80rem; color:var(--muted);">Keyboard Mode:</label>
+          <select id="manualSelect" style="min-width:340px;">
+            <option value="dual" selected>Dual Keyboards (Default): Ch 1 Left Bajos (C2–B4) + Ch 2 Right Cantabile (C4–C7)</option>
+            <option value="pianist_split">Pianist Split Mode: Single Unified Keyboard with Split Point (C2–C7)</option>
+            <option value="left">Left Keyboard Only — Ch 1 Bajos (C2–B4, Deep Bass Box &amp; Left Pan)</option>
+            <option value="right">Right Keyboard Only — Ch 2 Cantabile (C4–C7, Singing Treble Grill &amp; Right Pan)</option>
           </select>
+
+          <div id="splitPointGroup" style="display:none; align-items:center; gap:6px;">
+            <label for="splitNoteSelect" style="font-size:0.80rem; color:var(--muted);">Split Point:</label>
+            <select id="splitNoteSelect" style="min-width:140px;">
+              <option value="55">G3 (MIDI 55)</option>
+              <option value="57">A3 (MIDI 57)</option>
+              <option value="60" selected>C4 (MIDI 60 — Standard)</option>
+              <option value="62">D4 (MIDI 62)</option>
+              <option value="64">E4 (MIDI 64)</option>
+              <option value="65">F4 (MIDI 65)</option>
+              <option value="67">G4 (MIDI 67)</option>
+            </select>
+          </div>
         </div>
         <div class="kbd-instructions">
-          <strong>Click Height</strong> sets initial <strong>Note-On Velocity</strong> &bull;
-          <strong>Hold &amp; Move Mouse Up / Down</strong> on a pressed key continuously modulates <strong>CC#11 Bellows Pressure</strong>!
+          <strong>Click Height</strong> sets <strong>Note-On Velocity</strong> &bull;
+          <strong>Hold &amp; Drag Up/Down</strong> sweeps <strong>CC#11 Pressure</strong> &bull;
+          <span style="color:#d8b4fe; font-weight:700;">Violet C4–B4 Keys</span> exist on <strong>both</strong> keyboards with distinct Ch 1 vs Ch 2 tone &amp; pan!
         </div>
       </div>
 
-      <div class="piano-scroll">
-        <div id="pianoContainer" class="piano-container"></div>
-      </div>
+      <div id="pianoStack" class="kbd-stack"></div>
     </div>
   </div>
 

@@ -1,5 +1,6 @@
 {
-  "name": "Alfred Arnold (AA) Physical Model v2 (ADAA + Baffle + Coupled Celda)",
+  "name": "Alfred Arnold (AA) Physical Model v3 (Aero dU/dt + Clamped-Bar + Hopf Entrainment)",
+  "version": "v3_unified",
   "bellows_curve_gamma": 1.15,
   "bellows_attack_ms": 2.5,
   "bellows_release_ms": 7.0,
@@ -18,15 +19,15 @@
     "octave_4ft_gain_slope": -0.308,
     "octave_4ft_gain_curve": -0.78,
     "octave_4ft_pressure_boost": 0.44267517,
-    "reed_asymmetry_base": 0.42,
+    "reed_asymmetry_base": 0.4143,
     "reed_asymmetry_slope": -0.15760513,
-    "slot_sharpness_base": 6.8073597,
+    "slot_sharpness_base": 6.72736,
     "slot_sharpness_slope": -1.688,
-    "pressure_brightness_mod": 3.7274985,
-    "baffle_cutoff_hz": 411.856,
+    "pressure_brightness_mod": 3.517547,
+    "baffle_cutoff_hz": 391.768,
     "jet_corner_base_hz": 2670.0,
     "jet_corner_slope_hz": -80.0,
-    "reed_damping_base": 0.055,
+    "reed_damping_base": 0.044033438,
     "reed_damping_slope": 0.04,
     "piston_coupling_base": 0.5,
     "octave_beat_hz_base": 3.598373,
@@ -35,7 +36,16 @@
     "pitch_bend_slope": 13.5,
     "pallet_click_scale": 0.18,
     "air_noise_base": 2.0904,
-    "air_noise_slope": -2.05
+    "air_noise_slope": -2.05,
+    "monopole_rad_boost": 0.024799999,
+    "monopole_rad_slope": 0.152664,
+    "dipole_baffle_mix": 0.011532,
+    "duty_bias_base": -0.0182,
+    "clamped_bar_h6_gain": 0.0074563683,
+    "h3_notch_inject": 0.008,
+    "hopf_8ft_knee": 0.059720002,
+    "staccato_4ft_boost": 0.15436512,
+    "staccato_chiff_gain": 0.76399195
   },
   "right_cantabile": {
     "p_th_8ft_base": 0.025,
@@ -47,10 +57,10 @@
     "octave_4ft_gain_curve": -0.32,
     "octave_4ft_pressure_boost": 0.65,
     "reed_asymmetry_base": 0.28,
-    "reed_asymmetry_slope": -0.16,
-    "slot_sharpness_base": 5.4,
+    "reed_asymmetry_slope": -0.175,
+    "slot_sharpness_base": 5.418848,
     "slot_sharpness_slope": -0.888,
-    "pressure_brightness_mod": 3.3193634,
+    "pressure_brightness_mod": 3.1094117,
     "baffle_cutoff_hz": 455.0,
     "jet_corner_base_hz": 3600.0,
     "jet_corner_slope_hz": 1644.48,
@@ -62,8 +72,17 @@
     "pitch_bend_cents_per_pressure": -0.5,
     "pitch_bend_slope": 1.2,
     "pallet_click_scale": 0.58,
-    "air_noise_base": 0.87,
-    "air_noise_slope": -0.25
+    "air_noise_base": 0.8938328,
+    "air_noise_slope": -0.25,
+    "monopole_rad_boost": 0.0,
+    "monopole_rad_slope": -0.18993968,
+    "dipole_baffle_mix": 0.0,
+    "duty_bias_base": 0.0,
+    "clamped_bar_h6_gain": 0.008869968,
+    "h3_notch_inject": 0.0030752001,
+    "hopf_8ft_knee": 0.0,
+    "staccato_4ft_boost": 0.0,
+    "staccato_chiff_gain": 0.24919201
   },
   "body_modes": [
     {
@@ -94,7 +113,7 @@
     {
       "freq_hz": 3950.0,
       "q": 1.4,
-      "gain_db": 8.5
+      "gain_db": 8.872
     }
   ],
   "left_body_modes": [
@@ -111,22 +130,22 @@
     {
       "freq_hz": 495.0,
       "q": 1.9,
-      "gain_db": 5.0
+      "gain_db": 5.142997
     },
     {
       "freq_hz": 1020.0,
       "q": 1.8,
-      "gain_db": 2.0
+      "gain_db": 1.880836
     },
     {
       "freq_hz": 2050.0,
       "q": 1.6,
-      "gain_db": 3.5
+      "gain_db": 3.929164
     },
     {
       "freq_hz": 3850.0,
       "q": 1.5,
-      "gain_db": -0.5
+      "gain_db": -1.0
     }
   ],
   "pitch_brightness_trim": [

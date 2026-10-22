@@ -10,7 +10,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use synth_core::{BandoneonPreset, Hand, MidiEvent, SynthEngine};
+use synth_core::{BandoneonPreset, Hand, MidiEvent, SynthEngine, SynthVersion};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -46,6 +46,10 @@ struct Cli {
     )]
     preset: PathBuf,
 
+    /// Optional synthesis version override (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`)
+    #[arg(long)]
+    version: Option<String>,
+
     /// Enable Table Mode (allows playing notes using Note On velocity without moving the bellows / CC#11)
     #[arg(long)]
     table_mode: bool,
@@ -55,11 +59,20 @@ struct Cli {
     demo_wav: Option<PathBuf>,
 }
 
-fn load_preset(path: &PathBuf) -> BandoneonPreset {
-    std::fs::read_to_string(path)
+fn load_preset(path: &PathBuf, version_override: Option<&str>) -> Result<BandoneonPreset> {
+    if let Some(v_str) = version_override {
+        let ver = SynthVersion::from_slug(v_str).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unknown synthesis version '{}'. Expected one of: v1, v2, v3_aero, v3_beam, v3_transient, v3",
+                v_str
+            )
+        })?;
+        return Ok(BandoneonPreset::for_version(ver));
+    }
+    Ok(std::fs::read_to_string(path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_else(BandoneonPreset::default_bandoneon)
+        .unwrap_or_else(BandoneonPreset::default_bandoneon))
 }
 
 fn render_demo_wav(path: &PathBuf, sample_rate: u32, preset: BandoneonPreset) -> Result<()> {
@@ -128,7 +141,7 @@ fn render_demo_wav(path: &PathBuf, sample_rate: u32, preset: BandoneonPreset) ->
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let preset = load_preset(&cli.preset);
+    let preset = load_preset(&cli.preset, cli.version.as_deref())?;
 
     if let Some(ref wav_path) = cli.demo_wav {
         return render_demo_wav(wav_path, cli.sample_rate, preset);
@@ -151,8 +164,11 @@ fn main() -> Result<()> {
     }
 
     println!(
-        "[synth-standalone] Preset: '{}' | Sample Rate: {} Hz | Quantum: {} frames",
-        preset.name, cli.sample_rate, cli.buffer_frames
+        "[synth-standalone] Version: {} | Preset: '{}' | Sample Rate: {} Hz | Quantum: {} frames",
+        preset.version.slug(),
+        preset.name,
+        cli.sample_rate,
+        cli.buffer_frames
     );
 
     let (mut midi_prod, mut midi_cons) = RingBuffer::<(u8, u8, u8)>::new(1024);

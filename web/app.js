@@ -217,10 +217,14 @@
 
     if (status === 0x90 && d2 > 0) {
       updateVelocityUI(d2);
-      highlightKeyUI(d1, true, d2, liveCcMsb);
-      logMidi(`Note On  | Ch ${channel} (${channel === KBD_CHANNEL.left ? "Bajos" : "Cantabile"}) Note ${d1} Vel ${d2}`);
+      const effCh = effectiveChannelForHardwareMidi(channel, d1);
+      highlightKeyUI(d1, true, d2, liveCcMsb, null, effCh);
+      const handDesc = effCh === KBD_CHANNEL.left ? "Left Bajos • Bass Box" : "Right Cantabile • Treble Grill";
+      const ovTag = isOverlapMidiNote(d1) ? " [Overlap C4–B4]" : "";
+      logMidi(`Note On  | Ch ${channel} -> ${handDesc} | ${midiNoteLabel(d1)} (${d1})${ovTag} Vel ${d2}`);
     } else if (status === 0x80 || (status === 0x90 && d2 === 0)) {
-      highlightKeyUI(d1, false, 0, liveCcMsb);
+      const effCh = effectiveChannelForHardwareMidi(channel, d1);
+      highlightKeyUI(d1, false, 0, liveCcMsb, null, effCh);
     } else if (status === 0xb0) {
       if (d1 === 11) {
         liveCcMsb = d2;
@@ -233,16 +237,122 @@
   }
 
   // =========================================================================
-  // 2. WebAudio + WASM AudioWorklet Engine
+  // 2. WebAudio + WASM AudioWorklet Engine & Multi-Version Synthesis Selector
   // =========================================================================
+  const SYNTH_VERSIONS = [
+    {
+      id: 0,
+      slug: "v1",
+      shortTitle: "v1: Lumped Clipper",
+      label: "v1 Baseline — Lumped Odd Clipper + Shared Body EQ",
+      train: 61.99,
+      val: 60.36,
+      harm: 55.11,
+      tran: 63.02,
+      dual: 54.14,
+      pitch: 82.66,
+      body: 67.65,
+      cpu16: "168.5 us",
+      physics:
+        "Initial baseline: memoryless odd algebraic clipper u/sqrt(1+u²), single-pole low-pass filter, and a single shared 6-mode body resonator across both manuals (no ADAA anti-aliasing, no finite-baffle diffraction shelf).",
+    },
+    {
+      id: 1,
+      slug: "v2",
+      shortTitle: "v2: ADAA + Baffle",
+      label: "v2 Baseline — 1st-Order ADAA + 1-Pole Baffle + Coupled Celda",
+      train: 65.87,
+      val: 64.25,
+      harm: 62.23,
+      tran: 64.86,
+      dual: 56.60,
+      pitch: 81.87,
+      body: 70.90,
+      cpu16: "247.7 us",
+      physics:
+        "Previous SOTA baseline: 1st-order Antiderivative Anti-Aliasing (ADAA) orifice solver, 1-pole finite wooden box baffle high-pass shelf, coupled 8'+4' celda impedance drop, and dual-manual Left/Right wooden box modal banks.",
+    },
+    {
+      id: 2,
+      slug: "v3_aero",
+      shortTitle: "v3-Aero: dU/dt Jet",
+      label: "v3-Aero (Dir 1) — Quadrature Monopole dU/dt Radiation & 2-Pole Dipole Baffle",
+      train: 65.92,
+      val: 64.45,
+      harm: 62.40,
+      tran: 65.45,
+      dual: 56.55,
+      pitch: 81.87,
+      body: 70.95,
+      cpu16: "270.1 us",
+      physics:
+        "Investigation Direction 1 (Ricot et al. 2005; Puranik & Scavone 2022): Adds quadrature band-limited monopole volume-acceleration radiation (dU/dt = lp_state1 - lp_state2, 90° orthogonal to volume flow) and 2nd-order sub-baffle dipole diffraction.",
+    },
+    {
+      id: 3,
+      slug: "v3_beam",
+      shortTitle: "v3-Beam: Clamped-Bar",
+      label: "v3-Beam (Dir 2) — Poiseuille-Bernoulli Duty Softening & Clamped-Bar Modes",
+      train: 65.90,
+      val: 64.31,
+      harm: 62.28,
+      tran: 65.01,
+      dual: 56.64,
+      pitch: 81.87,
+      body: 70.92,
+      cpu16: "274.9 us",
+      physics:
+        "Investigation Direction 2 (Millot & Baumann 2007; Puranik & Scavone 2023): Models zero-sum barycentric Poiseuille-Bernoulli boundary-layer softening, pressure-driven H3 duty-cycle sharpening, and Euler-Bernoulli 2nd flexural clamped-bar modes (~6f0).",
+    },
+    {
+      id: 4,
+      slug: "v3_transient",
+      shortTitle: "v3-Transient: Hopf Lag",
+      label: "v3-Transient (Dir 3) — Unclamped Lastre Inertia, Hopf Lag & Staccato Chiff",
+      train: 65.92,
+      val: 64.31,
+      harm: 62.32,
+      tran: 64.86,
+      dual: 56.74,
+      pitch: 81.87,
+      body: 70.95,
+      cpu16: "265.4 us",
+      physics:
+        "Investigation Direction 3 (Ramos et al. 2023; Cottingham 2001-2013): Models low-bass tip-weight (lastre) inertia on C0..A#0, complementary 8'/4' Hopf onset lag, velocity-coupled 4' octave bite, and post-click staccato vortex detachment chiff.",
+    },
+    {
+      id: 5,
+      slug: "v3",
+      shortTitle: "v3: Unified SOTA ★",
+      label: "v3 Unified SOTA — Monopole dU/dt + Clamped-Bar + Hopf Entrainment",
+      train: 66.05,
+      val: 64.57,
+      harm: 62.54,
+      tran: 65.50,
+      dual: 56.79,
+      pitch: 81.87,
+      body: 71.03,
+      cpu16: "319.7 us",
+      physics:
+        "Unified SOTA Physical Model (Directions 1 + 2 + 3 co-calibrated): Combines quadrature monopole dU/dt jet radiation, 2nd-order sub-baffle dipole diffraction, zero-sum barycentric clamped-bar modes, low-bass lastre inertia, and Hopf onset entrainment.",
+    },
+  ];
+
   let audioCtx = null;
   let workletNode = null;
   let analyserNode = null;
+  let analyserL = null;
+  let analyserR = null;
   let audioInitPromise = null;
   let soundReady = false;
+  let activeVersionId = 5; // Default to v3 Unified SOTA
+  let currentStereoWidth = 0.84;
+  let currentSplitNote = 60; // C4
 
   const startBtn = document.getElementById("btn-start");
   const demoBtn = document.getElementById("btn-demo");
+  const overlapDemoBtn = document.getElementById("btn-overlap-demo");
+  const abCycleBtn = document.getElementById("btn-ab-cycle");
   const toneBtn = document.getElementById("btn-tone");
   const panicBtn = document.getElementById("btn-panic");
   const audioStatusBadge = document.getElementById("audioStatusBadge");
@@ -251,12 +361,150 @@
   const cc11Bar = document.getElementById("cc11Bar");
   const velReadout = document.getElementById("velReadout");
   const velBar = document.getElementById("velBar");
+  const stereoWidthSlider = document.getElementById("stereoWidthSlider");
+  const stereoWidthReadout = document.getElementById("stereoWidthReadout");
+  const leftMeterBar = document.getElementById("leftMeterBar");
+  const leftMeterText = document.getElementById("leftMeterText");
+  const rightMeterBar = document.getElementById("rightMeterBar");
+  const rightMeterText = document.getElementById("rightMeterText");
   const invertYToggle = document.getElementById("invertYToggle");
   const sustainHoldToggle = document.getElementById("sustainHoldToggle");
   const manualSelect = document.getElementById("manualSelect");
-  const pianoContainer = document.getElementById("pianoContainer");
+  const splitPointGroup = document.getElementById("splitPointGroup");
+  const splitNoteSelect = document.getElementById("splitNoteSelect");
+  const pianoStack = document.getElementById("pianoStack");
   const canvas = document.getElementById("scope-canvas");
   const canvasCtx = canvas.getContext("2d");
+  const versionSelect = document.getElementById("versionSelect");
+  const versionPills = document.getElementById("versionPills");
+  const versionDescBox = document.getElementById("versionDescBox");
+  const versionTableBody = document.getElementById("versionTableBody");
+
+  function renderVersionUI() {
+    if (!versionSelect || !versionPills || !versionDescBox || !versionTableBody) return;
+
+    // 1. Dropdown
+    versionSelect.innerHTML = "";
+    for (const v of SYNTH_VERSIONS) {
+      const opt = document.createElement("option");
+      opt.value = String(v.id);
+      opt.textContent = `${v.label} (Val: ${v.val.toFixed(2)})`;
+      versionSelect.appendChild(opt);
+    }
+    versionSelect.value = String(activeVersionId);
+
+    // 2. Quick-select pills (ordered v3 SOTA first, then ablations, then v2/v1)
+    const displayOrder = [5, 2, 3, 4, 1, 0];
+    versionPills.innerHTML = "";
+    for (const vid of displayOrder) {
+      const v = SYNTH_VERSIONS.find((x) => x.id === vid);
+      if (!v) continue;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "ver-btn" + (v.id === activeVersionId ? " active" : "");
+      btn.innerHTML = `
+        <div class="ver-btn-top">
+          <span>${v.shortTitle}</span>
+          <span class="ver-score-pill">Val ${v.val.toFixed(2)}</span>
+        </div>
+        <div class="ver-btn-sub">Train ${v.train.toFixed(2)} &bull; CPU ${v.cpu16}</div>
+      `;
+      btn.addEventListener("click", () => setSynthVersion(v.id));
+      versionPills.appendChild(btn);
+    }
+
+    // 3. Active description box
+    const cur = SYNTH_VERSIONS.find((x) => x.id === activeVersionId) || SYNTH_VERSIONS[5];
+    const deltaVal = cur.val - 64.25;
+    const deltaSign = deltaVal >= 0 ? `+${deltaVal.toFixed(2)}` : deltaVal.toFixed(2);
+    versionDescBox.innerHTML = `
+      <div><strong>Active Engine — ${cur.label}</strong> &nbsp;|&nbsp; Train: <strong>${cur.train.toFixed(2)}</strong> &bull; Held-Out Val: <strong>${cur.val.toFixed(2)}</strong> (${deltaSign} vs v2) &bull; 16-Voice CPU: <strong>${cur.cpu16}</strong></div>
+      <div style="margin-top:4px; color:var(--muted);">${cur.physics}</div>
+    `;
+
+    // 4. Full 6-version comparison table
+    versionTableBody.innerHTML = "";
+    for (const v of SYNTH_VERSIONS) {
+      const tr = document.createElement("tr");
+      if (v.id === activeVersionId) tr.className = "active-row";
+      const dVal = v.val - 64.25;
+      let dClass = "delta-base";
+      let dText = "baseline";
+      if (v.id !== 1) {
+        dClass = dVal >= 0 ? "delta-pos" : "delta-neg";
+        dText = (dVal >= 0 ? "+" : "") + dVal.toFixed(2);
+      }
+      tr.innerHTML = `
+        <td>${v.id === activeVersionId ? "▶ " : ""}${v.slug}</td>
+        <td style="font-family:system-ui, sans-serif;">${v.label}</td>
+        <td>${v.train.toFixed(2)}</td>
+        <td>${v.val.toFixed(2)}</td>
+        <td class="${dClass}">${dText}</td>
+        <td>${v.harm.toFixed(2)}</td>
+        <td>${v.tran.toFixed(2)}</td>
+        <td>${v.dual.toFixed(2)}</td>
+        <td>${v.pitch.toFixed(2)}</td>
+        <td>${v.body.toFixed(2)}</td>
+        <td>${v.cpu16}</td>
+      `;
+      tr.addEventListener("click", () => setSynthVersion(v.id));
+      versionTableBody.appendChild(tr);
+    }
+  }
+
+  function setSynthVersion(versionId) {
+    const v = SYNTH_VERSIONS.find((x) => x.id === Number(versionId));
+    if (!v) return;
+    activeVersionId = v.id;
+    if (workletNode) {
+      workletNode.port.postMessage({ type: "set-version", versionId: v.id });
+    }
+    renderVersionUI();
+    const verTag = v.slug.toUpperCase();
+    if (soundReady && audioCtx) {
+      audioStatusBadge.textContent = `Audio: ${audioCtx.sampleRate} Hz WASM [${verTag}] (${audioCtx.state})`;
+    }
+    logMidi(`Switched Synthesis Engine -> ${v.label} [Train ${v.train.toFixed(2)} / Val ${v.val.toFixed(2)}]`);
+  }
+
+  if (versionSelect) {
+    versionSelect.addEventListener("change", (e) => {
+      ensureAudioStarted();
+      setSynthVersion(Number(e.target.value));
+    });
+  }
+
+  renderVersionUI();
+
+  // Auto-sync scorecard metrics from synth-eval's generated version_comparison.json if present
+  fetch("version_comparison.json", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((entries) => {
+      if (!Array.isArray(entries)) return;
+      for (const entry of entries) {
+        const target = SYNTH_VERSIONS.find(
+          (v) => v.id === entry.version_id || v.slug === entry.slug
+        );
+        if (target && entry.scorecard && entry.scorecard.scores) {
+          const s = entry.scorecard.scores;
+          const vc = s.val_categories;
+          target.train = Number(s.composite_train_score);
+          target.val = Number(s.composite_val_score);
+          if (vc) {
+            target.harm = Number(vc.harmonic_profile.score);
+            target.tran = Number(vc.transients.score);
+            target.dual = Number(vc.dual_reed.score);
+            target.pitch = Number(vc.pitch_bend.score);
+            target.body = Number(vc.body_resonance.score);
+          }
+          if (entry.scorecard.performance) {
+            target.cpu16 = `${Number(entry.scorecard.performance.voice_16_us_per_quantum).toFixed(1)} us`;
+          }
+        }
+      }
+      renderVersionUI();
+    })
+    .catch(() => {});
 
   async function ensureAudioStarted() {
     unlockAudioSynchronously();
@@ -280,27 +528,44 @@
 
         analyserNode = audioCtx.createAnalyser();
         analyserNode.fftSize = 2048;
-        // Connect worklet directly to destination AND in parallel to analyserNode
+        analyserL = audioCtx.createAnalyser();
+        analyserL.fftSize = 1024;
+        analyserR = audioCtx.createAnalyser();
+        analyserR.fftSize = 1024;
+        const splitter = audioCtx.createChannelSplitter(2);
+        // Connect worklet directly to destination AND in parallel to analyserNode + L/R splitter
         node.connect(audioCtx.destination);
         node.connect(analyserNode);
+        node.connect(splitter);
+        splitter.connect(analyserL, 0);
+        splitter.connect(analyserR, 1);
 
         node.port.onmessage = (e) => {
           if (e.data.type === "ready") {
             soundReady = true;
-            audioStatusBadge.textContent = `Audio: ${e.data.sampleRate} Hz WASM (${audioCtx.state})`;
+            const cur = SYNTH_VERSIONS.find((x) => x.id === activeVersionId) || SYNTH_VERSIONS[5];
+            audioStatusBadge.textContent = `Audio: ${e.data.sampleRate} Hz WASM [${cur.slug.toUpperCase()}] (${audioCtx.state})`;
             startBtn.textContent = "Sound Active";
             startBtn.disabled = true;
             sendMidiToWorklet(0xb0, 11, liveCcMsb);
+          } else if (e.data.type === "version-changed") {
+            const cur = SYNTH_VERSIONS.find((x) => x.id === e.data.activeVersionId) || SYNTH_VERSIONS[5];
+            audioStatusBadge.textContent = `Audio: ${audioCtx.sampleRate} Hz WASM [${cur.slug.toUpperCase()}] (${audioCtx.state})`;
           } else if (e.data.type === "error") {
             audioStatusBadge.textContent = `WASM Error`;
             logMidi(`AudioWorklet Error: ${e.data.message}`);
           }
         };
 
+        const isPianistSplit = manualSelect && manualSelect.value === "pianist_split";
         node.port.postMessage({
           type: "init-wasm",
           wasmBytes,
           tableMode: false,
+          versionId: activeVersionId,
+          keyboardMode: isPianistSplit ? 1 : 0,
+          splitNote: currentSplitNote,
+          stereoWidth: currentStereoWidth,
         });
 
         workletNode = node;
@@ -380,7 +645,8 @@
       });
       audioCtx.onstatechange = () => {
         if (soundReady) {
-          audioStatusBadge.textContent = `Audio: ${audioCtx.sampleRate} Hz WASM (${audioCtx.state})`;
+          const cur = SYNTH_VERSIONS.find((x) => x.id === activeVersionId) || SYNTH_VERSIONS[5];
+          audioStatusBadge.textContent = `Audio: ${audioCtx.sampleRate} Hz WASM [${cur.slug.toUpperCase()}] (${audioCtx.state})`;
         }
       };
     }
@@ -433,12 +699,19 @@
   });
 
   // =========================================================================
-  // 3. Interactive Keyboard:
+  // 3. Interactive Dual-Channel Bandolibre & Pianist Split Keyboards:
+  //    - Default ("dual"): Two keyboards, one per MIDI channel
+  //        * Ch 1 Left Keyboard (Bajos, C2..B4, MIDI 36..71, Left Pan, Deep Bass Box)
+  //        * Ch 2 Right Keyboard (Cantabile, C4..C7, MIDI 60..96, Right Pan, Treble Grill)
+  //        * Shared Overlap Octave C4..B4 (MIDI 60..71) is highlighted on BOTH keyboards!
+  //    - "pianist_split": Single unified keyboard (C2..C7) split at `currentSplitNote`
   //    - Vertical Position of Click -> Note-On Velocity (1..127)
   //    - Moving Mouse Up & Down While Pressed -> Continuous CC#11 Variation
   // =========================================================================
   const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
   const BLACK_SEMITONES = new Set([1, 3, 6, 8, 10]);
+  const OVERLAP_MIN_MIDI = 60; // C4
+  const OVERLAP_MAX_MIDI = 71; // B4
 
   function midiNoteLabel(midi) {
     const name = NOTE_NAMES[midi % 12];
@@ -446,15 +719,64 @@
     return `${name}${oct}`;
   }
 
-  function channelForMidiNote(midi) {
-    const mode = manualSelect.value;
-    if (mode === "left") return KBD_CHANNEL.left;   // Ch 1 (0x90)
-    if (mode === "right") return KBD_CHANNEL.right; // Ch 2 (0x91)
-    return midi < 60 ? KBD_CHANNEL.left : KBD_CHANNEL.right;
+  function isOverlapMidiNote(midi) {
+    return midi >= OVERLAP_MIN_MIDI && midi <= OVERLAP_MAX_MIDI;
+  }
+
+  function effectiveChannelForHardwareMidi(rawChannel, midi) {
+    if (manualSelect && manualSelect.value === "pianist_split") {
+      return midi < currentSplitNote ? KBD_CHANNEL.left : KBD_CHANNEL.right;
+    }
+    if (rawChannel === KBD_CHANNEL.left || rawChannel === KBD_CHANNEL.right) {
+      return rawChannel;
+    }
+    return midi < currentSplitNote ? KBD_CHANNEL.left : KBD_CHANNEL.right;
+  }
+
+  function updateStereoWidthUI(widthNorm, sendToSynth = true) {
+    currentStereoWidth = Math.max(0.0, Math.min(1.0, Number(widthNorm)));
+    const pct = Math.round(currentStereoWidth * 100);
+    const mainPanPct = Math.round((0.5 + 0.5 * currentStereoWidth) * 100);
+    const crossPanPct = 100 - mainPanPct;
+    if (stereoWidthSlider) stereoWidthSlider.value = String(pct);
+    if (stereoWidthReadout) {
+      stereoWidthReadout.textContent = `${pct}% (${mainPanPct}% Main / ${crossPanPct}% Cross)`;
+    }
+    if (sendToSynth && workletNode) {
+      workletNode.port.postMessage({
+        type: "set-stereo-width",
+        stereoWidth: currentStereoWidth,
+      });
+    }
+  }
+
+  if (stereoWidthSlider) {
+    stereoWidthSlider.addEventListener("input", (e) => {
+      ensureAudioStarted();
+      updateStereoWidthUI(Number(e.target.value) / 100.0, true);
+    });
+  }
+
+  function syncKeyboardModeToWorklet() {
+    const mode = manualSelect ? manualSelect.value : "dual";
+    const isPianistSplit = mode === "pianist_split";
+    if (splitPointGroup) {
+      splitPointGroup.style.display = isPianistSplit ? "inline-flex" : "none";
+    }
+    if (workletNode) {
+      workletNode.port.postMessage({
+        type: "set-keyboard-mode",
+        modeId: isPianistSplit ? 1 : 0,
+      });
+      workletNode.port.postMessage({
+        type: "set-split-note",
+        splitNote: currentSplitNote,
+      });
+    }
   }
 
   /**
-   * Maps a pointer event's vertical Y coordinate within `keyEl` to `[1..127]`.
+   * Maps a pointer event's vertical Y coordinate within `keyEl` to `[0..1]`.
    * By default:
    * - Clicking/dragging toward the BOTTOM of the key = stronger velocity / higher CC#11 (up to 127),
    *   and dragging UP / DOWN smoothly sweeps CC#11 between 0 and 127!
@@ -467,47 +789,54 @@
     return invertYToggle.checked ? 1.0 - clamped : clamped;
   }
 
-  function highlightKeyUI(midi, isActive, velocity, cc11, clickRatioY = null) {
-    const keyEl = pianoContainer.querySelector(`.piano-key[data-midi="${midi}"]`);
-    if (!keyEl) return;
-    const fillEl = keyEl.querySelector(".key-cc-fill");
-    const markerEl = keyEl.querySelector(".key-vel-marker");
-    const badgeEl = keyEl.querySelector(".key-top-badge");
+  function highlightKeyUI(midi, isActive, velocity, cc11, clickRatioY = null, channel = null) {
+    if (!pianoStack) return;
+    const selector =
+      channel !== null && channel !== undefined
+        ? `.piano-key[data-midi="${midi}"][data-channel="${channel}"]`
+        : `.piano-key[data-midi="${midi}"]`;
+    const keyEls = pianoStack.querySelectorAll(selector);
+    keyEls.forEach((keyEl) => {
+      const fillEl = keyEl.querySelector(".key-cc-fill");
+      const markerEl = keyEl.querySelector(".key-vel-marker");
+      const badgeEl = keyEl.querySelector(".key-top-badge");
 
-    if (isActive) {
-      keyEl.classList.add("active");
-      keyEl.dataset.lastVel = velocity;
-      const pct = ((cc11 / 127) * 100).toFixed(0);
-      if (fillEl) fillEl.style.height = `${pct}%`;
-      if (markerEl && clickRatioY !== null) {
-        markerEl.style.top = `${(clickRatioY * 100).toFixed(1)}%`;
+      if (isActive) {
+        keyEl.classList.add("active");
+        keyEl.dataset.lastVel = velocity;
+        const pct = ((cc11 / 127) * 100).toFixed(0);
+        if (fillEl) fillEl.style.height = `${pct}%`;
+        if (markerEl && clickRatioY !== null) {
+          markerEl.style.top = `${(clickRatioY * 100).toFixed(1)}%`;
+        }
+        if (badgeEl) badgeEl.textContent = `V:${velocity} CC:${cc11}`;
+      } else {
+        keyEl.classList.remove("active");
+        if (fillEl) fillEl.style.height = "0%";
+        if (badgeEl) badgeEl.textContent = keyEl.dataset.noteLabel;
       }
-      if (badgeEl) badgeEl.textContent = `V:${velocity} CC:${cc11}`;
-    } else {
-      keyEl.classList.remove("active");
-      if (fillEl) fillEl.style.height = "0%";
-      if (badgeEl) badgeEl.textContent = keyEl.dataset.noteLabel;
-    }
+    });
   }
 
-  // Active pointer tracking: pointerId -> { midi, channel, keyEl }
+  // Active pointer tracking: pointerId -> { midi, channel, keyEl, statusOff, cancelled }
   const activePointers = new Map();
-  // Latched notes when "Latch / Hold Notes" is enabled: midi -> channel
+  // Latched notes when "Latch / Hold Notes" is enabled: `${channel}:${midi}` -> { midi, channel }
   const latchedNotes = new Map();
 
   function startNoteFromPointer(keyEl, clientY) {
     const midi = Number(keyEl.dataset.midi);
-    const channel = channelForMidiNote(midi);
+    const channel = Number(keyEl.dataset.channel) || KBD_CHANNEL.left;
     const statusOn = 0x90 | (channel - 1);
     const statusOff = 0x80 | (channel - 1);
+    const latchKey = `${channel}:${midi}`;
 
-    // Toggle off if Latch mode is enabled and note is already latched
-    if (sustainHoldToggle.checked && latchedNotes.has(midi)) {
-      const oldCh = latchedNotes.get(midi);
-      sendMidiToWorklet(0x80 | (oldCh - 1), midi, 64);
-      latchedNotes.delete(midi);
-      highlightKeyUI(midi, false, 0, liveCcMsb);
-      logMidi(`Latch Off | Note ${midiNoteLabel(midi)} (${midi})`);
+    // Toggle off if Latch mode is enabled and this (channel, midi) key is already latched
+    if (sustainHoldToggle.checked && latchedNotes.has(latchKey)) {
+      const old = latchedNotes.get(latchKey);
+      sendMidiToWorklet(0x80 | (old.channel - 1), old.midi, 64);
+      latchedNotes.delete(latchKey);
+      highlightKeyUI(midi, false, 0, liveCcMsb, null, channel);
+      logMidi(`Latch Off | Ch ${channel} Note ${midiNoteLabel(midi)} (${midi})`);
       return null;
     }
 
@@ -520,68 +849,216 @@
     sendMidiToWorklet(statusOn, midi, velocity);
 
     const visualY = invertYToggle.checked ? 1.0 - ratio : ratio;
-    highlightKeyUI(midi, true, velocity, initialCc11, visualY);
+    highlightKeyUI(midi, true, velocity, initialCc11, visualY, channel);
 
     if (sustainHoldToggle.checked) {
-      latchedNotes.set(midi, channel);
+      latchedNotes.set(latchKey, { midi, channel });
     }
 
-    const handLabel = channel === KBD_CHANNEL.left ? "Bajos" : "Cantabile";
+    const handDesc =
+      channel === KBD_CHANNEL.left
+        ? "Ch 1 • Left Bajos (Bass Box, Left Pan)"
+        : "Ch 2 • Right Cantabile (Treble Grill, Right Pan)";
+    const overlapTag = isOverlapMidiNote(midi) ? " [Shared Overlap C4–B4]" : "";
     logMidi(
-      `Key Press | ${midiNoteLabel(midi)} (${handLabel}) -> Vel=${velocity} (from click height), CC#11=${initialCc11}`
+      `Key Press | ${midiNoteLabel(midi)}${overlapTag} -> ${handDesc} | Vel=${velocity}, CC#11=${initialCc11}`
     );
 
-    return { midi, channel, keyEl, statusOff };
+    return { midi, channel, keyEl, statusOff, cancelled: false };
   }
 
-  function buildInteractivePiano() {
-    pianoContainer.innerHTML = "";
-    const mode = manualSelect.value;
-    const startMidi = mode === "right" ? 60 : 36; // C4 or C2
-    const endMidi = mode === "left" ? 71 : 84;    // B4 or C6
+  function createPianoLaneDOM({
+    laneClass,
+    badgeClass,
+    badgeText,
+    titleText,
+    metaText,
+    overlapNoteText,
+    startMidi,
+    endMidi,
+    channelResolver,
+    compact = false,
+    splitMarkerMidi = null,
+  }) {
+    const laneEl = document.createElement("div");
+    laneEl.className = `manual-lane ${laneClass}`;
 
-    // First pass: count white keys so black keys can be positioned accurately
+    const headerEl = document.createElement("div");
+    headerEl.className = "manual-lane-header";
+    headerEl.innerHTML = `
+      <div class="manual-lane-title">
+        <span class="ch-badge ${badgeClass}">${badgeText}</span>
+        <span>${titleText}</span>
+        ${overlapNoteText ? `<span class="ch-badge overlap">${overlapNoteText}</span>` : ""}
+      </div>
+      <div class="manual-lane-meta">${metaText}</div>
+    `;
+    laneEl.appendChild(headerEl);
+
+    const scrollEl = document.createElement("div");
+    scrollEl.className = "piano-scroll";
+    const containerEl = document.createElement("div");
+    containerEl.className = `piano-container${compact ? " compact-lane" : ""}`;
+
+    // Count white keys so black keys and optional split marker can be positioned accurately
     const whiteMidis = [];
     for (let m = startMidi; m <= endMidi; m++) {
       if (!BLACK_SEMITONES.has(m % 12)) whiteMidis.push(m);
     }
     const totalWhites = whiteMidis.length;
+    const whiteWidthPct = 100 / Math.max(1, totalWhites);
 
-    // Create white keys
     let whiteIndex = 0;
     const whiteIndexByMidi = new Map();
     for (let m = startMidi; m <= endMidi; m++) {
       if (!BLACK_SEMITONES.has(m % 12)) {
         whiteIndexByMidi.set(m, whiteIndex);
-        const keyEl = createKeyElement(m, false);
-        pianoContainer.appendChild(keyEl);
+        const ch = channelResolver(m);
+        const keyEl = createKeyElement(m, false, ch, splitMarkerMidi !== null);
+        containerEl.appendChild(keyEl);
         whiteIndex++;
       }
     }
 
-    // Create black keys overlaid between adjacent white keys
     for (let m = startMidi; m <= endMidi; m++) {
       if (BLACK_SEMITONES.has(m % 12)) {
         const prevWhiteIdx = whiteIndexByMidi.get(m - 1);
         if (prevWhiteIdx === undefined) continue;
-        const keyEl = createKeyElement(m, true);
-        const whiteWidthPct = 100 / totalWhites;
+        const ch = channelResolver(m);
+        const keyEl = createKeyElement(m, true, ch, splitMarkerMidi !== null);
         const leftPct = (prevWhiteIdx + 0.68) * whiteWidthPct;
         keyEl.style.left = `${leftPct.toFixed(3)}%`;
         keyEl.style.width = `${(whiteWidthPct * 0.64).toFixed(3)}%`;
-        pianoContainer.appendChild(keyEl);
+        containerEl.appendChild(keyEl);
       }
+    }
+
+    // In Pianist Split Mode, render a visual Split Point Divider on the unified keyboard
+    if (splitMarkerMidi !== null && splitMarkerMidi > startMidi && splitMarkerMidi <= endMidi) {
+      let splitWhiteIdx = whiteIndexByMidi.get(splitMarkerMidi);
+      if (splitWhiteIdx === undefined) {
+        const prevW = whiteIndexByMidi.get(splitMarkerMidi - 1);
+        splitWhiteIdx = prevW !== undefined ? prevW + 0.5 : 0;
+      }
+      const splitLeftPct = splitWhiteIdx * whiteWidthPct;
+      const dividerEl = document.createElement("div");
+      dividerEl.className = "split-divider";
+      dividerEl.style.left = `${splitLeftPct.toFixed(3)}%`;
+      dividerEl.innerHTML = `<div class="split-divider-badge">◄ Ch 1 Bajos (Left) &bull; Split @ ${midiNoteLabel(splitMarkerMidi)} &bull; Ch 2 Cantabile (Right) ►</div>`;
+      containerEl.appendChild(dividerEl);
+    }
+
+    scrollEl.appendChild(containerEl);
+    laneEl.appendChild(scrollEl);
+    return laneEl;
+  }
+
+  function buildInteractivePiano() {
+    if (!pianoStack) return;
+    pianoStack.innerHTML = "";
+    const mode = manualSelect ? manualSelect.value : "dual";
+    syncKeyboardModeToWorklet();
+
+    if (mode === "dual") {
+      // DEFAULT: Two separate Bandolibre keyboards, one for each MIDI channel!
+      // 1. Left Keyboard (Channel 1 — Bajos, C2..B4, MIDI 36..71)
+      const leftLane = createPianoLaneDOM({
+        laneClass: "left-lane",
+        badgeClass: "ch1",
+        badgeText: "MIDI Ch 1 • Left Keyboard",
+        titleText: "Bajos (Bass Manual — C2 to B4, MIDI 36–71)",
+        overlapNoteText: "Overlap C4–B4: Also on Right Ch 2",
+        metaText: "Tone: Deep Wooden Bass Box (255–495 Hz Formant, Lastre Bass) • Pan: Left",
+        startMidi: 36,
+        endMidi: 71,
+        channelResolver: () => KBD_CHANNEL.left,
+        compact: true,
+        splitMarkerMidi: null,
+      });
+
+      // 2. Right Keyboard (Channel 2 — Cantabile, C4..C7, MIDI 60..96)
+      const rightLane = createPianoLaneDOM({
+        laneClass: "right-lane",
+        badgeClass: "ch2",
+        badgeText: "MIDI Ch 2 • Right Keyboard",
+        titleText: "Cantabile (Treble Manual — C4 to C7, MIDI 60–96)",
+        overlapNoteText: "Overlap C4–B4: Also on Left Ch 1",
+        metaText: "Tone: Singing Metal Grill (1–4 kHz Formants, Fast 4' Octave) • Pan: Right",
+        startMidi: 60,
+        endMidi: 96,
+        channelResolver: () => KBD_CHANNEL.right,
+        compact: true,
+        splitMarkerMidi: null,
+      });
+
+      pianoStack.appendChild(leftLane);
+      pianoStack.appendChild(rightLane);
+    } else if (mode === "pianist_split") {
+      // PIANIST SPLIT MODE: Single unified piano keyboard (C2..C7) split at `currentSplitNote`
+      const splitLabel = midiNoteLabel(currentSplitNote);
+      const lowMaxLabel = midiNoteLabel(currentSplitNote - 1);
+      const splitLane = createPianoLaneDOM({
+        laneClass: "split-lane",
+        badgeClass: "ch1",
+        badgeText: `Pianist Split @ ${splitLabel}`,
+        titleText: `Single Unified Keyboard: Ch 1 Bajos (C2–${lowMaxLabel}) | Ch 2 Cantabile (${splitLabel}–C7)`,
+        overlapNoteText: "Bandoneon Overlap Zone: C4–B4",
+        metaText: "Routes single-keyboard or 1-channel MIDI piano input into Ch 1 (Left Tone & Pan) / Ch 2 (Right Tone & Pan)",
+        startMidi: 36,
+        endMidi: 96,
+        channelResolver: (m) => (m < currentSplitNote ? KBD_CHANNEL.left : KBD_CHANNEL.right),
+        compact: false,
+        splitMarkerMidi: currentSplitNote,
+      });
+      pianoStack.appendChild(splitLane);
+    } else if (mode === "left") {
+      const leftOnly = createPianoLaneDOM({
+        laneClass: "left-lane",
+        badgeClass: "ch1",
+        badgeText: "MIDI Ch 1 • Left Keyboard Only",
+        titleText: "Bajos (Bass Manual — C2 to B4, MIDI 36–71)",
+        overlapNoteText: "Overlap C4–B4",
+        metaText: "Tone: Deep Wooden Bass Box • Pan: Left",
+        startMidi: 36,
+        endMidi: 71,
+        channelResolver: () => KBD_CHANNEL.left,
+        compact: false,
+        splitMarkerMidi: null,
+      });
+      pianoStack.appendChild(leftOnly);
+    } else {
+      const rightOnly = createPianoLaneDOM({
+        laneClass: "right-lane",
+        badgeClass: "ch2",
+        badgeText: "MIDI Ch 2 • Right Keyboard Only",
+        titleText: "Cantabile (Treble Manual — C4 to C7, MIDI 60–96)",
+        overlapNoteText: "Overlap C4–B4",
+        metaText: "Tone: Singing Metal Grill • Pan: Right",
+        startMidi: 60,
+        endMidi: 96,
+        channelResolver: () => KBD_CHANNEL.right,
+        compact: false,
+        splitMarkerMidi: null,
+      });
+      pianoStack.appendChild(rightOnly);
     }
   }
 
-  function createKeyElement(midi, isBlack) {
+  function createKeyElement(midi, isBlack, ch, showSplitTint = false) {
     const label = midiNoteLabel(midi);
-    const ch = channelForMidiNote(midi);
-    const handTag = ch === KBD_CHANNEL.left ? "Bajos" : "Cant";
+    const handTag = ch === KBD_CHANNEL.left ? "Ch1•Bajos" : "Ch2•Cant";
+    const isOverlap = isOverlapMidiNote(midi);
+    const tintClass =
+      !isBlack && showSplitTint
+        ? ch === KBD_CHANNEL.left
+          ? " left-tint"
+          : " right-tint"
+        : "";
 
     const keyEl = document.createElement("div");
-    keyEl.className = `piano-key ${isBlack ? "black-key" : "white-key"}`;
+    keyEl.className = `piano-key ${isBlack ? "black-key" : "white-key"}${isOverlap ? " overlap-key" : ""}${tintClass}`;
     keyEl.dataset.midi = midi;
+    keyEl.dataset.channel = ch;
     keyEl.dataset.noteLabel = label;
 
     keyEl.innerHTML = `
@@ -589,6 +1066,7 @@
       <div class="key-vel-marker"></div>
       <div class="key-top-badge">${label}</div>
       <div class="key-bottom-label">
+        ${isOverlap ? `<span class="key-overlap-pill" title="Note ${label} exists on BOTH Bandolibre keyboards (Ch 1 Bajos & Ch 2 Cantabile)">BOTH</span>` : ""}
         <span class="key-note-name">${label}</span>
         <span class="key-hand-tag">${handTag}</span>
       </div>
@@ -630,7 +1108,7 @@
       activePointers.delete(e.pointerId);
       if (!sustainHoldToggle.checked) {
         sendMidiToWorklet(state.statusOff, state.midi, 64);
-        highlightKeyUI(state.midi, false, 0, liveCcMsb);
+        highlightKeyUI(state.midi, false, 0, liveCcMsb, null, state.channel);
       }
     };
 
@@ -642,7 +1120,22 @@
   manualSelect.addEventListener("change", () => {
     sendAllNotesOff();
     buildInteractivePiano();
+    const mode = manualSelect.value;
+    if (mode === "dual") {
+      logMidi("Keyboard Mode -> Dual Keyboards (Ch 1 Left Bajos C2–B4 + Ch 2 Right Cantabile C4–C7)");
+    } else if (mode === "pianist_split") {
+      logMidi(`Keyboard Mode -> Pianist Split Mode (Single Unified Keyboard split at ${midiNoteLabel(currentSplitNote)})`);
+    }
   });
+
+  if (splitNoteSelect) {
+    splitNoteSelect.addEventListener("change", (e) => {
+      currentSplitNote = Number(e.target.value) || 60;
+      sendAllNotesOff();
+      buildInteractivePiano();
+      logMidi(`Updated Pianist Split Point -> ${midiNoteLabel(currentSplitNote)} (MIDI ${currentSplitNote})`);
+    });
+  }
 
   buildInteractivePiano();
 
@@ -667,7 +1160,7 @@
     updateCC11UI(28, 0, true);
     for (const c of chord) {
       sendMidiToWorklet(0x90 | (c.ch - 1), c.midi, c.vel);
-      highlightKeyUI(c.midi, true, c.vel, 28, c.vel / 127);
+      highlightKeyUI(c.midi, true, c.vel, 28, c.vel / 127, c.ch);
     }
     updateVelocityUI(102);
     logMidi("Playing 5-voice A-minor Tango Chord with CC#11 Bellows Swell…");
@@ -685,7 +1178,7 @@
       } else {
         for (const c of chord) {
           sendMidiToWorklet(0x80 | (c.ch - 1), c.midi, 64);
-          highlightKeyUI(c.midi, false, 0, 85);
+          highlightKeyUI(c.midi, false, 0, 85, null, c.ch);
         }
         updateCC11UI(85, 0, true);
         clearInterval(demoInterval);
@@ -694,9 +1187,140 @@
     }, 25);
   });
 
+  // --- Overlap Octave Comparison Demo (Ch 1 Left Bajos vs Ch 2 Right Cantabile vs Both) ---
+  if (overlapDemoBtn) {
+    overlapDemoBtn.addEventListener("click", async () => {
+      await ensureAudioStarted();
+      if (demoInterval) {
+        clearInterval(demoInterval);
+        demoInterval = null;
+      }
+      sendAllNotesOff();
+      if (manualSelect && manualSelect.value !== "dual") {
+        manualSelect.value = "dual";
+        buildInteractivePiano();
+      }
+
+      // E4 (MIDI 64) + A4 (MIDI 69) lie inside the C4..B4 overlap octave present on both keyboards
+      const overlapNotes = [64, 69];
+      let phase = 0;
+
+      const startPhase = (newPhase) => {
+        sendAllNotesOff();
+        phase = newPhase;
+        updateCC11UI(96, 0, true);
+        updateVelocityUI(100);
+        if (phase === 1) {
+          for (const m of overlapNotes) {
+            sendMidiToWorklet(0x90, m, 100); // Ch 1 Left Bajos
+            highlightKeyUI(m, true, 100, 96, 0.78, KBD_CHANNEL.left);
+          }
+          logMidi("Overlap Demo [1/3]: E4 + A4 on MIDI Ch 1 (Left Keyboard • Bajos — Deep Woody Box, Left Pan)");
+        } else if (phase === 2) {
+          for (const m of overlapNotes) {
+            sendMidiToWorklet(0x91, m, 100); // Ch 2 Right Cantabile
+            highlightKeyUI(m, true, 100, 96, 0.78, KBD_CHANNEL.right);
+          }
+          logMidi("Overlap Demo [2/3]: Same E4 + A4 on MIDI Ch 2 (Right Keyboard • Cantabile — Bright Metal Grill, Right Pan)");
+        } else if (phase === 3) {
+          for (const m of overlapNotes) {
+            sendMidiToWorklet(0x90, m, 100); // Ch 1 Left
+            sendMidiToWorklet(0x91, m, 100); // Ch 2 Right
+            highlightKeyUI(m, true, 100, 96, 0.78, KBD_CHANNEL.left);
+            highlightKeyUI(m, true, 100, 96, 0.78, KBD_CHANNEL.right);
+          }
+          logMidi("Overlap Demo [3/3]: E4 + A4 on BOTH Keyboards Simultaneously (Ch 1 Left + Ch 2 Right Stereo Unison)");
+        }
+      };
+
+      startPhase(1);
+      let step = 0;
+      demoInterval = setInterval(() => {
+        step++;
+        const t = step * 0.04;
+        const swell = 86 + Math.sin(t * 5.0) * 22;
+        updateCC11UI(swell, 0, true);
+        if (step === 32) {
+          startPhase(2);
+        } else if (step === 64) {
+          startPhase(3);
+        } else if (step >= 98) {
+          sendAllNotesOff();
+          updateCC11UI(90, 0, true);
+          clearInterval(demoInterval);
+          demoInterval = null;
+          logMidi("Completed Overlap Comparison Demo.");
+        }
+      }, 40);
+    });
+  }
+
+  if (abCycleBtn) {
+    abCycleBtn.addEventListener("click", async () => {
+      await ensureAudioStarted();
+      if (demoInterval) {
+        clearInterval(demoInterval);
+        demoInterval = null;
+      }
+      sendAllNotesOff();
+
+      const chord = [
+        { midi: 45, ch: KBD_CHANNEL.left, vel: 100 },  // A2 (Bajos)
+        { midi: 52, ch: KBD_CHANNEL.left, vel: 92 },   // E3 (Bajos)
+        { midi: 69, ch: KBD_CHANNEL.right, vel: 104 }, // A4 (Cantabile)
+        { midi: 72, ch: KBD_CHANNEL.right, vel: 96 },  // C5 (Cantabile)
+        { midi: 76, ch: KBD_CHANNEL.right, vel: 100 }, // E5 (Cantabile)
+      ];
+
+      const order = [0, 1, 2, 3, 4, 5];
+      let idx = 0;
+      setSynthVersion(order[idx]);
+      updateCC11UI(96, 0, true);
+      for (const c of chord) {
+        sendMidiToWorklet(0x90 | (c.ch - 1), c.midi, c.vel);
+        highlightKeyUI(c.midi, true, c.vel, 96, c.vel / 127, c.ch);
+      }
+      updateVelocityUI(104);
+      logMidi("Starting 6-Version A/B Cycle (v1 -> v2 -> v3_aero -> v3_beam -> v3_transient -> v3)…");
+
+      let step = 0;
+      demoInterval = setInterval(() => {
+        step++;
+        const t = step * 0.05;
+        const nextIdx = Math.floor(t / 1.1);
+        if (nextIdx < order.length) {
+          if (nextIdx !== idx) {
+            idx = nextIdx;
+            setSynthVersion(order[idx]);
+          }
+          const swell = 88 + Math.sin(t * 5.5) * 24;
+          updateCC11UI(swell, 0, true);
+        } else {
+          for (const c of chord) {
+            sendMidiToWorklet(0x80 | (c.ch - 1), c.midi, 64);
+            highlightKeyUI(c.midi, false, 0, 90, null, c.ch);
+          }
+          updateCC11UI(90, 0, true);
+          clearInterval(demoInterval);
+          demoInterval = null;
+          logMidi("Completed 6-Version A/B Cycle (active: v3 Unified SOTA).");
+        }
+      }, 50);
+    });
+  }
+
   // =========================================================================
-  // 4. Real-Time Waveform & Harmonic Spectrum Visualizer
+  // 4. Real-Time Stereo (L / R) Waveform & Harmonic Spectrum Visualizer
   // =========================================================================
+  function computeRmsPercent(timeBuf) {
+    let sum = 0;
+    for (let i = 0; i < timeBuf.length; i++) {
+      sum += timeBuf[i] * timeBuf[i];
+    }
+    const rms = Math.sqrt(sum / Math.max(1, timeBuf.length));
+    return Math.min(100, Math.round(rms * 280));
+  }
+
   function drawScopeAndSpectrum() {
     requestAnimationFrame(drawScopeAndSpectrum);
     if (!analyserNode) return;
@@ -717,19 +1341,58 @@
       canvasCtx.fillRect(i * barW, h - barH, barW - 1, barH);
     }
 
-    const timeBuf = new Float32Array(analyserNode.fftSize);
-    analyserNode.getFloatTimeDomainData(timeBuf);
-    canvasCtx.strokeStyle = "#fbbf24";
-    canvasCtx.lineWidth = 2;
-    canvasCtx.beginPath();
-    const sliceW = w / 512;
-    for (let i = 0; i < 512; i++) {
-      const x = i * sliceW;
-      const y = h * 0.45 - timeBuf[i] * (h * 0.38);
-      if (i === 0) canvasCtx.moveTo(x, y);
-      else canvasCtx.lineTo(x, y);
+    if (analyserL && analyserR) {
+      const bufL = new Float32Array(analyserL.fftSize);
+      const bufR = new Float32Array(analyserR.fftSize);
+      analyserL.getFloatTimeDomainData(bufL);
+      analyserR.getFloatTimeDomainData(bufR);
+
+      const pctL = computeRmsPercent(bufL);
+      const pctR = computeRmsPercent(bufR);
+      if (leftMeterBar) leftMeterBar.style.width = `${pctL}%`;
+      if (leftMeterText) leftMeterText.textContent = `${pctL}%`;
+      if (rightMeterBar) rightMeterBar.style.width = `${pctR}%`;
+      if (rightMeterText) rightMeterText.textContent = `${pctR}%`;
+
+      const sliceW = w / 512;
+      // Draw Left channel (Ch 1 Bajos) in Teal
+      canvasCtx.strokeStyle = "#2dd4bf";
+      canvasCtx.lineWidth = 1.8;
+      canvasCtx.beginPath();
+      for (let i = 0; i < 512; i++) {
+        const x = i * sliceW;
+        const y = h * 0.34 - bufL[i] * (h * 0.30);
+        if (i === 0) canvasCtx.moveTo(x, y);
+        else canvasCtx.lineTo(x, y);
+      }
+      canvasCtx.stroke();
+
+      // Draw Right channel (Ch 2 Cantabile) in Amber
+      canvasCtx.strokeStyle = "#fbbf24";
+      canvasCtx.lineWidth = 1.8;
+      canvasCtx.beginPath();
+      for (let i = 0; i < 512; i++) {
+        const x = i * sliceW;
+        const y = h * 0.68 - bufR[i] * (h * 0.30);
+        if (i === 0) canvasCtx.moveTo(x, y);
+        else canvasCtx.lineTo(x, y);
+      }
+      canvasCtx.stroke();
+    } else {
+      const timeBuf = new Float32Array(analyserNode.fftSize);
+      analyserNode.getFloatTimeDomainData(timeBuf);
+      canvasCtx.strokeStyle = "#fbbf24";
+      canvasCtx.lineWidth = 2;
+      canvasCtx.beginPath();
+      const sliceW = w / 512;
+      for (let i = 0; i < 512; i++) {
+        const x = i * sliceW;
+        const y = h * 0.45 - timeBuf[i] * (h * 0.38);
+        if (i === 0) canvasCtx.moveTo(x, y);
+        else canvasCtx.lineTo(x, y);
+      }
+      canvasCtx.stroke();
     }
-    canvasCtx.stroke();
   }
 
   initWebMIDI();

@@ -1,6 +1,7 @@
 # Rust build artifacts & evaluation outputs
 /target/
 /web/synth_wasm.wasm
+/web/version_comparison.json
 
 # Golden sample audio dataset (local only, not tracked in Git)
 /assets/samples/golden/

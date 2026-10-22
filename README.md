@@ -1,6 +1,6 @@
-# Bandolibre Physical Modeling Synthesizer
+# BandoPM — Bandoneon Physical Modeling Synthesizer
 
-A real-time, physics-informed bandoneon sound synthesizer written in **Rust**, designed specifically for the **[Bandolibre](https://bandolibre.github.io)** open-source MIDI bandoneon controller.
+**BandoPM** is a real-time, physics-informed bandoneon physical modeling synthesizer written in **Rust**, designed specifically for the **[Bandolibre](https://bandolibre.github.io)** open-source MIDI bandoneon controller.
 
 It adopts a **Browser-First (`WebAssembly` + `AudioWorklet` + `WebMIDI`)** deployment strategy while maintaining a strictly portable, platform-agnostic Rust DSP core ready for **Linux Standalone** (`cpal`/`midir` or `JACK`/`PipeWire`) and **Cross-Platform DAW Plugins** (`CLAP` via `nih-plug` or `clack`).
 

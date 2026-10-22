@@ -8,18 +8,19 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use features::extract_features;
 use rayon::prelude::*;
-use scorecard::{evaluate_preset, write_scorecard_reports};
+use scorecard::{evaluate_preset, write_scorecard_reports, Scorecard};
+use serde::{Deserialize, Serialize};
 use sim::{simulate_and_extract, CachedGoldenSample, GoldenManifest};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use synth_core::BandoneonPreset;
+use synth_core::{BandoneonPreset, SynthVersion};
 use tuner::tune_preset;
 use wav::{load_wav_mono, write_wav_mono_16bit};
 
 #[derive(Parser)]
 #[command(
     name = "synth-eval",
-    about = "Autonomous evaluation, simulation, parameter tuning, and scorecard reporting harness"
+    about = "Autonomous evaluation, simulation, parameter tuning, and multi-version comparison harness"
 )]
 struct Cli {
     /// Path to golden dataset directory
@@ -29,6 +30,10 @@ struct Cli {
     /// Path to preset JSON file
     #[arg(long, default_value = "assets/presets/default_bandoneon.json")]
     preset: PathBuf,
+
+    /// Optional synthesis version override (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`)
+    #[arg(long)]
+    version: Option<String>,
 
     /// Path to evaluation output directory
     #[arg(long, default_value = "target/eval")]
@@ -60,9 +65,24 @@ enum Commands {
     },
     /// Print detailed per-hand, per-dynamic, and per-pitch-band physical diagnostics
     Diagnose,
+    /// Evaluate and compare all 6 synthesis versions (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`)
+    Compare,
 }
 
-fn load_or_create_preset(path: &Path) -> Result<BandoneonPreset> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionComparisonEntry {
+    pub version_id: u8,
+    pub slug: String,
+    pub label: String,
+    pub scorecard: Scorecard,
+}
+
+fn load_or_create_preset(path: &Path, version_override: Option<&str>) -> Result<BandoneonPreset> {
+    if let Some(v_str) = version_override {
+        let ver = SynthVersion::from_slug(v_str)
+            .with_context(|| format!("Unknown synthesis version '{}'. Expected one of: v1, v2, v3_aero, v3_beam, v3_transient, v3", v_str))?;
+        return Ok(BandoneonPreset::for_version(ver));
+    }
     if path.exists() {
         let s = std::fs::read_to_string(path)?;
         let preset: BandoneonPreset = serde_json::from_str(&s)?;
@@ -219,9 +239,97 @@ fn print_summary(card: &scorecard::Scorecard, out_dir: &Path) {
     );
 }
 
+fn run_compare_all(golden: &[CachedGoldenSample], sr: u32, out_dir: &Path) -> Result<()> {
+    println!("==============================================================================================================");
+    println!(" MULTI-VERSION BANDONEON SYNTHESIS COMPARISON (n={} Golden WAVs: 219 Train, 109 Held-Out Val)", golden.len());
+    println!("==============================================================================================================");
+    println!(
+        "{:<14} | {:>9} | {:>9} | {:>8} | {:>8} | {:>8} | {:>8} | {:>8} | {:>9} | {:>5}",
+        "Version", "Train", "Val", "Harm(35)", "Tran(25)", "Dual(20)", "Ptch(10)", "Body(10)", "16v CPU", "Gates"
+    );
+    println!("--------------------------------------------------------------------------------------------------------------");
+
+    let mut entries = Vec::new();
+    for ver in SynthVersion::ALL {
+        let mut preset = BandoneonPreset::for_version(ver);
+        if ver == SynthVersion::V3Unified {
+            let default_path = Path::new("assets/presets/default_bandoneon.json");
+            if default_path.exists() {
+                if let Ok(s) = std::fs::read_to_string(default_path) {
+                    if let Ok(loaded) = serde_json::from_str::<BandoneonPreset>(&s) {
+                        if loaded.version == SynthVersion::V3Unified {
+                            preset = loaded;
+                        }
+                    }
+                }
+            }
+        }
+        let card = evaluate_preset(&preset, golden, sr, true);
+        let s = &card.scores;
+        let vc = &s.val_categories;
+        println!(
+            "{:<14} | {:>9.2} | {:>9.2} | {:>8.2} | {:>8.2} | {:>8.2} | {:>8.2} | {:>8.2} | {:>7.1}us | {:>5}",
+            ver.slug(),
+            s.composite_train_score,
+            s.composite_val_score,
+            vc.harmonic_profile.score,
+            vc.transients.score,
+            vc.dual_reed.score,
+            vc.pitch_bend.score,
+            vc.body_resonance.score,
+            card.performance.voice_16_us_per_quantum,
+            if card.gates.passed_all { "PASS" } else { "FAIL" }
+        );
+        entries.push(VersionComparisonEntry {
+            version_id: ver.as_u8(),
+            slug: ver.slug().to_string(),
+            label: ver.label().to_string(),
+            scorecard: card,
+        });
+    }
+    println!("==============================================================================================================");
+
+    std::fs::create_dir_all(out_dir)?;
+    let cmp_json = serde_json::to_string_pretty(&entries)?;
+    std::fs::write(out_dir.join("version_comparison.json"), &cmp_json)?;
+    let web_cmp = Path::new("web/version_comparison.json");
+    if web_cmp.parent().map(|p| p.exists()).unwrap_or(false) {
+        std::fs::write(web_cmp, &cmp_json)?;
+    }
+
+    let mut md = String::from("# Multi-Version Synthesis Comparison Report\n\n");
+    md.push_str("| Version | Description | Train Score | Val Score | 1. Harmonic (Val) | 2. Transients (Val) | 3. Dual-Reed (Val) | 4. Pitch (Val) | 5. Body (Val) | 16-Voice CPU | Gates |\n");
+    md.push_str("| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n");
+    for e in &entries {
+        let s = &e.scorecard.scores;
+        let vc = &s.val_categories;
+        md.push_str(&format!(
+            "| `{}` | {} | **{:.2}** | **{:.2}** | {:.2} | {:.2} | {:.2} | {:.2} | {:.2} | `{:.1} us` | {} |\n",
+            e.slug,
+            e.label,
+            s.composite_train_score,
+            s.composite_val_score,
+            vc.harmonic_profile.score,
+            vc.transients.score,
+            vc.dual_reed.score,
+            vc.pitch_bend.score,
+            vc.body_resonance.score,
+            e.scorecard.performance.voice_16_us_per_quantum,
+            if e.scorecard.gates.passed_all { "PASS" } else { "FAIL" }
+        ));
+    }
+    std::fs::write(out_dir.join("version_comparison.md"), md)?;
+    println!(
+        " Comparison reports written to {:?} and {:?}",
+        out_dir.join("version_comparison.md"),
+        out_dir.join("version_comparison.json")
+    );
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let preset = load_or_create_preset(&cli.preset)?;
+    let preset = load_or_create_preset(&cli.preset, cli.version.as_deref())?;
 
     match cli.command.unwrap_or(Commands::Eval {
         rebuild_cache: false,
@@ -262,18 +370,23 @@ fn main() -> Result<()> {
             let out_wav = cli
                 .out_dir
                 .join("renders")
-                .join(format!("{}_synth.wav", item.meta.id));
+                .join(format!("{}_{}_synth.wav", item.meta.id, preset.version.slug()));
             write_wav_mono_16bit(&out_wav, sr, &rendered)?;
             println!(
-                "Rendered {} samples ({:.2}s) to {:?}",
+                "Rendered {} samples ({:.2}s) [{}] to {:?}",
                 rendered.len(),
                 rendered.len() as f32 / sr as f32,
+                preset.version.slug(),
                 out_wav
             );
         }
         Commands::Diagnose => {
             let (sr, golden) = load_or_build_golden_cache(&cli.golden_dir, &cli.out_dir, false)?;
             scorecard::print_detailed_diagnostics(&preset, &golden, sr);
+        }
+        Commands::Compare => {
+            let (sr, golden) = load_or_build_golden_cache(&cli.golden_dir, &cli.out_dir, false)?;
+            run_compare_all(&golden, sr, &cli.out_dir)?;
         }
     }
 
