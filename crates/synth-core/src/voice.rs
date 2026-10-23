@@ -48,6 +48,10 @@ pub struct BandoneonVoice {
     step_attack_scale: f32,
     /// Peak smoothed pressure seen by this voice (stabilizes 4'/8' ratio during attack).
     peak_voice_pressure: f32,
+    /// Per-note Polyphonic Key Pressure / MPE pressure target (`< 0.0` when driven by global `CC#11`).
+    note_pressure_target: f32,
+    /// Audio-rate one-pole smoothed per-note pressure in `[0.0, 1.5]`.
+    note_pressure_current: f32,
     /// Elapsed audio samples since `NoteOn` (used to gate post-click vortex shedding).
     voice_samples: u32,
 
@@ -88,6 +92,8 @@ impl BandoneonVoice {
             onset_transient_env: 0.0,
             step_attack_scale: 0.0,
             peak_voice_pressure: 0.0,
+            note_pressure_target: -1.0,
+            note_pressure_current: 0.0,
             voice_samples: 0,
             reed_8ft: FreeReed::new(261.63, 0.0),
             reed_4ft: FreeReed::new(523.25, 0.25),
@@ -158,6 +164,8 @@ impl BandoneonVoice {
         self.prev_valve_aperture = self.valve_aperture;
         self.onset_transient_env = vel_norm * vel_norm;
         self.step_attack_scale = 0.0;
+        self.note_pressure_target = -1.0;
+        self.note_pressure_current = 0.0;
         self.voice_samples = 0;
         // High-velocity staccato attacks strongly excite the lower-mass 4' octave reed
         self.peak_voice_pressure = 0.25 + 1.05 * vel_norm * vel_norm;
@@ -174,6 +182,27 @@ impl BandoneonVoice {
         // Pallet valve click scales with velocity^1.6 and manual transmission scale
         self.click_env =
             vel_norm.powf(1.6) * preset.pallet_click_gain * self.params.pallet_click_scale;
+    }
+
+    /// Sets per-note Polyphonic Key Pressure / MPE expression (`0..=127`) for independent multi-touch/MPE voices.
+    #[inline]
+    pub fn set_note_pressure(&mut self, pressure: u8, curve_gamma: f32) {
+        let norm = (pressure.min(127) as f32) / 127.0;
+        let p = if norm <= 0.0 {
+            0.0
+        } else {
+            norm.powf(curve_gamma)
+        };
+        if self.note_pressure_target < 0.0 {
+            self.note_pressure_current = p;
+        }
+        self.note_pressure_target = p;
+    }
+
+    /// Clears per-note pressure override so the voice returns to following global `CC#11`.
+    #[inline]
+    pub fn clear_note_pressure(&mut self) {
+        self.note_pressure_target = -1.0;
     }
 
     pub fn trigger_note_off(&mut self, release_velocity: u8, preset: &BandoneonPreset) {
@@ -209,6 +238,13 @@ impl BandoneonVoice {
 
         let version = preset.version;
         self.voice_samples = self.voice_samples.saturating_add(1);
+        let bellows_pressure = if self.note_pressure_target >= 0.0 {
+            self.note_pressure_current +=
+                0.008 * (self.note_pressure_target - self.note_pressure_current);
+            self.note_pressure_current
+        } else {
+            bellows_pressure
+        };
 
         // 1. Update pallet valve aperture A_valve(t)
         self.prev_valve_aperture = self.valve_aperture;

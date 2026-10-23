@@ -40,6 +40,12 @@ pub enum MidiEvent {
         release_velocity: u8,
         hand: Hand,
     },
+    /// Per-note Polyphonic Key Pressure / MPE intensity (`0..=127`) for multi-touch / MPE expression.
+    PolyPressure {
+        note: u8,
+        pressure: u8,
+        hand: Hand,
+    },
     /// Continuous MIDI CC#11 Expression (`0..=127`) from the Bandolibre bellows sensor.
     ControlChange11(u8),
     /// High-resolution continuous expression in `[0.0, 1.0]`.
@@ -306,6 +312,18 @@ impl SynthEngine {
                     self.bellows.notify_all_notes_off();
                 }
             }
+            MidiEvent::PolyPressure {
+                note,
+                pressure,
+                hand,
+            } => {
+                let gamma = self.preset.bellows_curve_gamma.clamp(0.5, 3.0);
+                for v in &mut self.voices {
+                    if v.active && v.midi_note == note && v.hand == hand {
+                        v.set_note_pressure(pressure, gamma);
+                    }
+                }
+            }
             MidiEvent::ControlChange11(cc11) => {
                 self.bellows.set_cc11(cc11);
             }
@@ -359,6 +377,11 @@ impl SynthEngine {
             0x80 => self.handle_midi_event(MidiEvent::NoteOff {
                 note: data1,
                 release_velocity: data2,
+                hand,
+            }),
+            0xA0 => self.handle_midi_event(MidiEvent::PolyPressure {
+                note: data1,
+                pressure: data2,
                 hand,
             }),
             0xB0 if data1 == 11 => {

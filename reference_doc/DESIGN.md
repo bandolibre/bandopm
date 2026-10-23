@@ -80,6 +80,8 @@ The Bandolibre firmware transmits:
 2. **`CC#11` (Expression, 0–127, or 14-bit with `CC#43` if enabled)**: Continuous measurement of the bellows blade deflection.
 3. **`Note On` (`0x90`/`0x91`, `note`, `velocity`)**: Sent when a Hall-effect button crosses its actuation threshold. On the Bandolibre, `velocity` reflects the bellows blade state at the instant of key depression (or a fixed constant in *Table Mode*).
 4. **`Note Off` (`0x80`/`0x81`, `note`, `release_velocity`)**: Sent when the button is released.
+5. **Polyphonic Key Pressure / Aftertouch (`0xA0`/`0xA1`, `note`, `pressure`)**: Per-note expression pressure override (`MidiEvent::PolyPressure`) smoothed at audio rate per voice, enabling independent per-finger dynamic intensity on multi-touch screens and MPE controllers without flickering shared `CC#11`.
+6. **Bandolibre SysEx Bellows Direction (`SYSEX_MSG_BELLOWS_DIRECTION = 0x05`)**: 7-bit-safe Bandolibre SysEx framing (`F0 7D 42 4C ... F7`) reporting push (`DIR_CLOSING`) vs. pull (`DIR_OPENING`) bellows direction for visual *Fueye* telemetry.
 
 ### 3.2 Reconciling `Note On` Velocity and Continuous `CC#11`
 In a physical bandoneon, button depression opens a mechanical **pallet valve** (*zapatilla*), while the bellows supply the **reservoir pressure** $P_{\text{bellows}}(t)$. We decouple these two physical actions while honoring both MIDI signals:

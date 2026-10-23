@@ -742,15 +742,36 @@
     }
   }
 
-  function updateCC11UI(msb, lsb = 0, sendToSynth = true) {
-    liveCcMsb = Math.max(0, Math.min(127, Math.round(msb)));
-    liveCcLsb = Math.max(0, Math.min(127, Math.round(lsb)));
-    const pct = ((liveCcMsb / 127) * 100).toFixed(0);
-
+  function setSpineDisplay(ccValue) {
+    const clamped = Math.max(0, Math.min(127, Math.round(ccValue)));
+    const pct = ((clamped / 127) * 100).toFixed(0);
     const spineVal = document.getElementById("bellowsSpineVal");
     const spineFill = document.getElementById("bellowsSpineFill");
     if (spineVal) spineVal.textContent = `${pct}%`;
     if (spineFill) spineFill.style.height = `${pct}%`;
+  }
+
+  function updateSpineFromActivePointers() {
+    let sum = 0;
+    let count = 0;
+    for (const st of activePointers.values()) {
+      if (typeof st.cc === "number") {
+        sum += st.cc;
+        count++;
+      }
+    }
+    if (count > 0) {
+      const avgCc = Math.round(sum / count);
+      liveCcMsb = avgCc;
+      setSpineDisplay(avgCc);
+    }
+  }
+
+  function updateCC11UI(msb, lsb = 0, sendToSynth = true) {
+    liveCcMsb = Math.max(0, Math.min(127, Math.round(msb)));
+    liveCcLsb = Math.max(0, Math.min(127, Math.round(lsb)));
+    const pct = ((liveCcMsb / 127) * 100).toFixed(0);
+    setSpineDisplay(liveCcMsb);
 
     if (sendToSynth) {
       sendMidiToWorklet(0xb0, 11, liveCcMsb);
@@ -758,6 +779,7 @@
     }
 
     document.querySelectorAll(".piano-key.active").forEach((keyEl) => {
+      if (keyEl.dataset.perNoteTouch === "1") return;
       const fillEl = keyEl.querySelector(".key-cc-fill");
       if (fillEl) fillEl.style.height = `${pct}%`;
     });
@@ -887,6 +909,7 @@
     const midi = Number(keyEl.dataset.midi);
     const channel = Number(keyEl.dataset.channel) || KBD_CHANNEL.left;
     const statusOn = 0x90 | (channel - 1);
+    const statusPolyAftertouch = 0xa0 | (channel - 1);
     const statusOff = 0x80 | (channel - 1);
     const latchKey = `${channel}:${midi}`;
 
@@ -894,25 +917,36 @@
       const old = latchedNotes.get(latchKey);
       sendMidiToWorklet(0x80 | (old.channel - 1), old.midi, 64);
       latchedNotes.delete(latchKey);
+      keyEl.dataset.perNoteTouch = "0";
       highlightKeyUI(midi, false, 0, liveCcMsb, null, channel);
       return null;
     }
 
     const ratio = yRatioFromKeyEvent(keyEl, clientY);
     const velocity = Math.max(1, Math.min(127, Math.round(1 + ratio * 126)));
-    const initialCc11 = Math.max(8, Math.min(127, Math.round(ratio * 127)));
+    const noteCc = Math.max(8, Math.min(127, Math.round(ratio * 127)));
 
-    updateCC11UI(initialCc11, 0, true);
+    keyEl.dataset.perNoteTouch = "1";
     sendMidiToWorklet(statusOn, midi, velocity);
+    // Send MPE / Polyphonic Key Pressure (0xA0) so each multi-touch key has its own independent intensity
+    sendMidiToWorklet(statusPolyAftertouch, midi, noteCc);
 
     const visualY = invertYToggle && invertYToggle.checked ? 1.0 - ratio : ratio;
-    highlightKeyUI(midi, true, velocity, initialCc11, visualY, channel);
+    highlightKeyUI(midi, true, velocity, noteCc, visualY, channel);
 
     if (sustainHoldToggle && sustainHoldToggle.checked) {
       latchedNotes.set(latchKey, { midi, channel });
     }
 
-    return { midi, channel, keyEl, statusOff, cancelled: false };
+    return {
+      midi,
+      channel,
+      keyEl,
+      statusOff,
+      statusPolyAftertouch,
+      cc: noteCc,
+      cancelled: false,
+    };
   }
 
   function createBellowsSpineDOM() {
@@ -1165,8 +1199,10 @@
       const started = startNoteFromPointer(keyEl, e.clientY);
       if (started) {
         activePointers.set(e.pointerId, started);
+        updateSpineFromActivePointers();
       } else {
         activePointers.delete(e.pointerId);
+        updateSpineFromActivePointers();
       }
     });
 
@@ -1175,10 +1211,13 @@
       if (!state) return;
       e.preventDefault();
       const ratio = yRatioFromKeyEvent(state.keyEl, e.clientY);
-      const cc14 = Math.round(ratio * 16383);
-      const msb = (cc14 >> 7) & 0x7f;
-      const lsb = cc14 & 0x7f;
-      updateCC11UI(msb, lsb, true);
+      const noteCc = Math.max(1, Math.min(127, Math.round(ratio * 127)));
+      state.cc = noteCc;
+      const statusPoly = state.statusPolyAftertouch || (0xa0 | (state.channel - 1));
+      sendMidiToWorklet(statusPoly, state.midi, noteCc);
+      const visualY = invertYToggle && invertYToggle.checked ? 1.0 - ratio : ratio;
+      highlightKeyUI(state.midi, true, Number(state.keyEl.dataset.lastVel) || noteCc, noteCc, visualY, state.channel);
+      updateSpineFromActivePointers();
     });
 
     const releasePointer = (e) => {
@@ -1188,9 +1227,11 @@
       state.cancelled = true;
       activePointers.delete(e.pointerId);
       if (!sustainHoldToggle || !sustainHoldToggle.checked) {
+        state.keyEl.dataset.perNoteTouch = "0";
         sendMidiToWorklet(state.statusOff, state.midi, 64);
         highlightKeyUI(state.midi, false, 0, liveCcMsb, null, state.channel);
       }
+      updateSpineFromActivePointers();
     };
 
     keyEl.addEventListener("pointerup", releasePointer);
@@ -1385,6 +1426,34 @@
       installPwaBtn.style.display = "none";
     }
   });
+
+  // =========================================================================
+  // 9. About / Information Modal
+  // =========================================================================
+  const infoBtn = document.getElementById("btn-info");
+  const infoModal = document.getElementById("info-modal");
+  const infoCloseBtn = document.getElementById("btn-info-close");
+
+  if (infoBtn && infoModal) {
+    infoBtn.addEventListener("click", () => {
+      infoModal.classList.add("open");
+    });
+    if (infoCloseBtn) {
+      infoCloseBtn.addEventListener("click", () => {
+        infoModal.classList.remove("open");
+      });
+    }
+    infoModal.addEventListener("click", (e) => {
+      if (e.target === infoModal) {
+        infoModal.classList.remove("open");
+      }
+    });
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && infoModal.classList.contains("open")) {
+        infoModal.classList.remove("open");
+      }
+    });
+  }
 
   drawFrequencySpectrum();
   initWebMIDI();

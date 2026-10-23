@@ -68,13 +68,21 @@
       gap: 14px;
     }
 
+    /* Subsetted handwritten font ('Caveat' 700) containing only the glyphs "Bando" — zero network request, zero FOUT */
+    @font-face {
+      font-family: 'BandoHand';
+      font-style: normal;
+      font-weight: 700;
+      font-display: block;
+      src: url("data:font/woff2;base64,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") format("woff2");
+    }
+
     /* 1. Top Bar */
     .topbar {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr;
+      display: flex;
       align-items: center;
-      gap: 12px;
-      min-height: 52px;
+      gap: 14px;
+      min-height: 48px;
       padding: 8px 16px;
       background: var(--surface);
       border: 1px solid var(--border);
@@ -82,45 +90,119 @@
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
 
-    @media (max-width: 820px) {
-      .topbar {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .topbar-left,
-    .topbar-center,
-    .topbar-right {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .topbar-left {
-      justify-self: start;
-    }
-
-    .topbar-center {
-      justify-self: center;
-    }
-
-    .topbar-right {
-      justify-self: end;
-    }
-
     .brand {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-right: 4px;
+      flex-shrink: 0;
     }
 
     .brand h1 {
       margin: 0;
+      display: inline-flex;
+      align-items: baseline;
       font-size: 1.02rem;
       font-weight: 600;
+      line-height: 1;
       letter-spacing: -0.01em;
       color: #ffffff;
+      white-space: nowrap;
+    }
+
+    .brand-bando {
+      font-family: 'BandoHand', 'Segoe Script', 'Snell Roundhand', 'Apple Chancery', cursive;
+      font-size: 1.32em;
+      font-weight: 700;
+      line-height: 0.85;
+      letter-spacing: 0.01em;
+      margin-right: 1px;
+    }
+
+    .brand-pm {
+      font-weight: 600;
+      line-height: 1;
+    }
+
+    .topbar-controls {
+      flex: 1;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: nowrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px 14px;
+      min-width: 0;
+    }
+
+    .topbar-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .topbar-actions {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    /* Strictly couple 2-line controls and vertical BandoPM to the exact same screen-width breakpoint */
+    @media (max-width: 720px) {
+      .topbar-controls {
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      .topbar-actions {
+        flex-direction: column;
+        align-self: stretch;
+        justify-content: flex-start;
+        gap: 8px;
+      }
+
+      #btn-info {
+        order: 1;
+      }
+
+      #btn-install-pwa {
+        order: 2;
+        margin-top: auto;
+      }
+
+      .topbar .brand {
+        flex-direction: column;
+        justify-content: center;
+        align-self: stretch;
+        gap: 4px;
+        max-height: 64px;
+        padding-right: 8px;
+        border-right: 1px solid var(--border);
+      }
+
+      .topbar .brand .led {
+        width: 6px;
+        height: 6px;
+      }
+
+      .topbar .brand h1 {
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        font-size: 0.76rem;
+        line-height: 0.9;
+        letter-spacing: 0;
+      }
+
+      .topbar .brand-bando {
+        font-size: 1.22em;
+        line-height: 0.85;
+        margin-right: 0;
+        margin-bottom: 1px;
+      }
     }
 
     .led {
@@ -198,6 +280,15 @@
     button.apple-btn:hover:not(:disabled) {
       background: rgba(255, 255, 255, 0.11);
       border-color: rgba(255, 255, 255, 0.18);
+    }
+
+    button.apple-btn.icon-btn {
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
 
     button.apple-btn.primary {
@@ -347,10 +438,12 @@
 
     .stage-toolbar {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       align-items: center;
-      justify-content: space-between;
-      gap: 10px;
+      justify-content: flex-start;
+      gap: 8px;
+      white-space: nowrap;
+      overflow-x: auto;
     }
 
     .segmented-bar {
@@ -361,18 +454,20 @@
       border-radius: 9px;
       padding: 3px;
       gap: 2px;
+      flex-shrink: 0;
     }
 
     .seg-btn {
       font-family: inherit;
-      font-size: 0.76rem;
+      font-size: 0.75rem;
       font-weight: 500;
       color: var(--muted);
       background: transparent;
       border: none;
       border-radius: 6px;
-      padding: 5px 12px;
+      padding: 5px 10px;
       cursor: pointer;
+      white-space: nowrap;
       transition: all 0.14s ease;
     }
 
@@ -415,8 +510,13 @@
     }
 
     @media (max-width: 1100px) {
-      .kbd-stack {
+      .kbd-stack,
+      .kbd-stack.single-mode {
         grid-template-columns: 1fr;
+      }
+
+      .bellows-spine {
+        display: none !important;
       }
     }
 
@@ -743,18 +843,102 @@
       border-radius: 999px;
       white-space: nowrap;
     }
+
+    /* Info Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(8, 9, 12, 0.72);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal-card {
+      width: 100%;
+      max-width: 520px;
+      background: linear-gradient(180deg, #1d1f25 0%, #14161a 100%);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      padding: 20px 22px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      color: var(--fg);
+      font-size: 0.86rem;
+      line-height: 1.55;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-title {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #ffffff;
+      display: inline-flex;
+      align-items: baseline;
+    }
+
+    .modal-section {
+      margin-bottom: 14px;
+    }
+
+    .modal-section:last-child {
+      margin-bottom: 0;
+    }
+
+    .modal-section h3 {
+      margin: 0 0 4px 0;
+      font-size: 0.74rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--amber);
+    }
+
+    .modal-section p {
+      margin: 0;
+      color: #d1d5db;
+    }
+
+    .modal-card a {
+      color: var(--push);
+      text-decoration: none;
+      font-weight: 500;
+      border-bottom: 1px solid rgba(108, 179, 173, 0.35);
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .modal-card a:hover {
+      color: #ffffff;
+      border-bottom-color: #ffffff;
+    }
   </style>
 </head>
 <body class="preload">
   <div class="app-shell">
     <!-- 1. Whisper-Quiet Top Bar -->
-    <header class="topbar">
-      <div class="topbar-left">
-        <div class="brand">
-          <span id="audioLed" class="led"></span>
-          <h1>BandoPM</h1>
-        </div>
+    <header class="topbar" id="topbar">
+      <div class="brand">
+        <span id="audioLed" class="led"></span>
+        <h1><span class="brand-bando">Bando</span><span class="brand-pm">PM</span></h1>
+      </div>
 
+      <div class="topbar-controls" id="topbarControls">
         <div class="pill-control" title="WebMIDI Controller Connection">
           <span id="statusDot" class="led"></span>
           <span id="statusText" class="pill-label">MIDI</span>
@@ -762,30 +946,43 @@
             <option value="">Select MIDI…</option>
           </select>
         </div>
+
+        <div class="topbar-group">
+          <span class="pill-label">Model</span>
+          <select id="versionSelect" class="apple-select" aria-label="Select Synthesis Model" style="width:206px;">
+            <option value="12" selected>v5 — Vivo Expressive ★</option>
+            <option value="11">v4 — Unified SOTA</option>
+            <option value="6">v4 — Cabinet 10-Mode IR</option>
+            <option value="7">v4 — 3-Regime Slot ADAA</option>
+            <option value="8">v4 — Coupled 2nd-Order ODE</option>
+            <option value="9">v4 — Celda Cavity SVF</option>
+            <option value="10">v4 — Zapatilla Valve</option>
+            <option value="5">v3 — Unified</option>
+            <option value="2">v3 — Aero Monopole Jet</option>
+            <option value="3">v3 — Clamped-Bar Modes</option>
+            <option value="4">v3 — Hopf Onset Lag</option>
+            <option value="1">v2 — ADAA + Baffle</option>
+            <option value="0">v1 — Lumped Clipper</option>
+          </select>
+        </div>
       </div>
 
-      <div class="topbar-center">
-        <span class="pill-label">Model</span>
-        <select id="versionSelect" class="apple-select" aria-label="Select Synthesis Model" style="width:206px;">
-          <option value="12" selected>v5 — Vivo Expressive ★</option>
-          <option value="11">v4 — Unified SOTA</option>
-          <option value="6">v4 — Cabinet 10-Mode IR</option>
-          <option value="7">v4 — 3-Regime Slot ADAA</option>
-          <option value="8">v4 — Coupled 2nd-Order ODE</option>
-          <option value="9">v4 — Celda Cavity SVF</option>
-          <option value="10">v4 — Zapatilla Valve</option>
-          <option value="5">v3 — Unified</option>
-          <option value="2">v3 — Aero Monopole Jet</option>
-          <option value="3">v3 — Clamped-Bar Modes</option>
-          <option value="4">v3 — Hopf Onset Lag</option>
-          <option value="1">v2 — ADAA + Baffle</option>
-          <option value="0">v1 — Lumped Clipper</option>
-        </select>
-      </div>
+      <div class="topbar-actions">
+        <button id="btn-install-pwa" class="apple-btn icon-btn" style="display:none;" aria-label="Install App" title="Install BandoPM as a standalone app">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+        </button>
 
-      <div class="topbar-right">
-        <button id="btn-panic" class="apple-btn">Notes off</button>
-        <button id="btn-install-pwa" class="apple-btn" style="display:none;" title="Install BandoPM as a standalone app">Install App</button>
+        <button id="btn-info" class="apple-btn icon-btn" aria-label="About BandoPM" title="About BandoPM">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -828,35 +1025,42 @@
     <!-- 3. Keyboard Stage with Integrated Central Bellows (Fueye) Spine -->
     <div class="keyboard-stage">
       <div class="stage-toolbar">
-        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px;">
-          <div class="segmented-bar" id="manualSegBar" role="tablist" aria-label="Keyboard Layout">
-            <button type="button" class="seg-btn active" data-mode="dual">Dual Manuals</button>
-            <button type="button" class="seg-btn" data-mode="pianist_split">Pianist Split</button>
-            <button type="button" class="seg-btn" data-mode="left">Bajos</button>
-            <button type="button" class="seg-btn" data-mode="right">Cantabile</button>
-          </div>
-
-          <!-- Hidden select kept in sync for keyboard mode logic -->
-          <select id="manualSelect" style="display:none;">
-            <option value="dual" selected>Dual Manuals</option>
-            <option value="pianist_split">Pianist Split</option>
-            <option value="left">Bajos</option>
-            <option value="right">Cantabile</option>
-          </select>
-
-          <div id="splitPointGroup" style="display:none; align-items:center; gap:6px;">
-            <label for="splitNoteSelect" class="pill-label">Split</label>
-            <select id="splitNoteSelect" class="apple-select">
-              <option value="55">G3</option>
-              <option value="57">A3</option>
-              <option value="60" selected>C4</option>
-              <option value="62">D4</option>
-              <option value="64">E4</option>
-              <option value="65">F4</option>
-              <option value="67">G4</option>
-            </select>
-          </div>
+        <div class="segmented-bar" id="manualSegBar" role="tablist" aria-label="Keyboard Layout">
+          <button type="button" class="seg-btn active" data-mode="dual">Dual</button>
+          <button type="button" class="seg-btn" data-mode="pianist_split">Pianist Split</button>
+          <button type="button" class="seg-btn" data-mode="left">Bajos</button>
+          <button type="button" class="seg-btn" data-mode="right">Cantabile</button>
         </div>
+
+        <!-- Hidden select kept in sync for keyboard mode logic -->
+        <select id="manualSelect" style="display:none;">
+          <option value="dual" selected>Dual</option>
+          <option value="pianist_split">Pianist Split</option>
+          <option value="left">Bajos</option>
+          <option value="right">Cantabile</option>
+        </select>
+
+        <div id="splitPointGroup" style="display:none; align-items:center; gap:6px; flex-shrink:0;">
+          <label for="splitNoteSelect" class="pill-label">Split</label>
+          <select id="splitNoteSelect" class="apple-select">
+            <option value="55">G3</option>
+            <option value="57">A3</option>
+            <option value="60" selected>C4</option>
+            <option value="62">D4</option>
+            <option value="64">E4</option>
+            <option value="65">F4</option>
+            <option value="67">G4</option>
+          </select>
+        </div>
+
+        <button id="btn-panic" class="apple-btn icon-btn" style="flex-shrink:0; margin-left:auto;" aria-label="Notes off" title="Notes off">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
+            <line x1="2" y1="2" x2="22" y2="22" />
+          </svg>
+        </button>
 
         <!-- Subtle hidden inputs to preserve compatibility -->
         <div style="display:none;">
@@ -869,6 +1073,44 @@
     </div>
   </div>
 
-  <script src="app.js?v=5.6"></script>
+  <!-- About / Information Modal -->
+  <div id="info-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="info-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="info-modal-title" class="modal-title">
+          <span class="brand-bando">Bando</span><span class="brand-pm">PM</span>&nbsp;&mdash; Physical Modeling Synthesizer
+        </h2>
+        <button id="btn-info-close" class="apple-btn icon-btn" aria-label="Close" title="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-section">
+        <h3>L'Atelier du Bandon&eacute;on Libre</h3>
+        <p>
+          <strong>BandoPM</strong> is a project from <a href="https://bandolibre.github.io" target="_blank" rel="noopener noreferrer">L'Atelier du Bandon&eacute;on Libre</a>, built for the open-source Bandolibre MIDI bandoneon controller and playable directly in the browser via WebMIDI, multi-touch, or computer keyboard.
+        </p>
+      </div>
+
+      <div class="modal-section">
+        <h3>Real-Time Physical Modeling</h3>
+        <p>
+          Rather than playing back static audio samples, BandoPM synthesizes sound from first-principles acoustics in real time using Rust and WebAssembly (<code>AudioWorklet</code>): it solves the nonlinear fluid-structure interaction of blown-closed cantilever free reeds driven by Bernoulli orifice airflow, coupled 8&prime; + 4&prime; octave reed pairs sharing individual wooden <em>celda</em> cavities, leather pallet (<em>zapatilla</em>) transients, and the distinct acoustic resonances of the Left (<em>Bajos</em>) and Right (<em>Cantabile</em>) wooden boxes.
+        </p>
+      </div>
+
+      <div class="modal-section">
+        <h3>Open-Source License</h3>
+        <p>
+          Free and open-source software dual-licensed under the <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer">MIT License</a> and the <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener noreferrer">Apache License 2.0</a>. Source code is available on <a href="https://github.com/bandolibre/bandopm" target="_blank" rel="noopener noreferrer">GitHub</a>.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=5.16"></script>
 </body>
 </html>
