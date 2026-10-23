@@ -337,7 +337,7 @@
 
       if (status === 0x90 && d2 > 0) {
         // Physical key pressed on hardware: hand expression control back to hardware
-        if (activePointers.size === 0 && !spinePointerActive) {
+        if (activePointers.size === 0 && !spinePointerActive && mouseCcOverride) {
           mouseCcOverride = false;
           updateCC11UI(lastHardwareCcMsb, liveCcLsb, true);
         }
@@ -409,6 +409,28 @@
   let activeVersionId = 12; // Default to v5 Vivo Expressive
   let currentStereoWidth = 0.84;
   let currentSplitNote = 60; // C4
+  const pendingMainMidi = [];
+
+  // Fallback main-thread WASM mirror so the spectrogram & L/R meters animate from MIDI
+  // even while the browser keeps AudioContext suspended before the first click on reload.
+  let mirrorWasm = null;
+  let mirrorCtx = 0;
+  let mirrorLeftPtr = 0;
+  let mirrorRightPtr = 0;
+  const FFT_N = 2048;
+  const FFT_BINS = FFT_N >> 1; // 1024
+  const mirrorRingL = new Float32Array(FFT_N);
+  const mirrorRingR = new Float32Array(FFT_N);
+  const mirrorSmoothMagL = new Float32Array(FFT_BINS);
+  const mirrorSmoothMagR = new Float32Array(FFT_BINS);
+  const mirrorFreqBinsL = new Uint8Array(FFT_BINS);
+  const mirrorFreqBinsR = new Uint8Array(FFT_BINS);
+  const fftRe = new Float32Array(FFT_N);
+  const fftIm = new Float32Array(FFT_N);
+  const hannWin = new Float32Array(FFT_N);
+  for (let i = 0; i < FFT_N; i++) {
+    hannWin[i] = 0.5 * (1.0 - Math.cos((2.0 * Math.PI * i) / (FFT_N - 1)));
+  }
 
   const startBtn = document.getElementById("btn-start");
   const panicBtn = document.getElementById("btn-panic");
@@ -504,6 +526,26 @@
         reverbPredelay: postParams.reverbPredelay,
         spatialAmount: postParams.spatialAmount,
       });
+    }
+    if (mirrorWasm && mirrorCtx) {
+      if (mirrorWasm.synth_set_stereo_width) {
+        mirrorWasm.synth_set_stereo_width(mirrorCtx, +currentStereoWidth);
+      }
+      if (mirrorWasm.synth_set_post_enabled) {
+        mirrorWasm.synth_set_post_enabled(mirrorCtx, postEnabled ? 1 : 0);
+      }
+      if (mirrorWasm.synth_set_post_params) {
+        mirrorWasm.synth_set_post_params(
+          mirrorCtx,
+          +postParams.compAmount,
+          +postParams.reverbMix,
+          +postParams.reverbSize,
+          +postParams.spatialAmount
+        );
+      }
+      if (mirrorWasm.synth_set_reverb_predelay) {
+        mirrorWasm.synth_set_reverb_predelay(mirrorCtx, +postParams.reverbPredelay);
+      }
     }
   }
 
@@ -633,6 +675,9 @@
     if (workletNode) {
       workletNode.port.postMessage({ type: "set-version", versionId: v.id });
     }
+    if (mirrorWasm && mirrorCtx && mirrorWasm.synth_set_version) {
+      mirrorWasm.synth_set_version(mirrorCtx, v.id | 0);
+    }
     if (versionSelect) versionSelect.value = String(activeVersionId);
   }
 
@@ -694,6 +739,41 @@
         };
 
         const isPianistSplit = manualSelect && manualSelect.value === "pianist_split";
+        try {
+          const mirrorRes = await WebAssembly.instantiate(wasmBytes, {});
+          mirrorWasm = mirrorRes.instance.exports;
+          mirrorCtx = mirrorWasm.synth_create(audioCtx.sampleRate || 48000);
+          mirrorLeftPtr = mirrorWasm.synth_left_buffer_ptr(mirrorCtx);
+          mirrorRightPtr = mirrorWasm.synth_right_buffer_ptr(mirrorCtx);
+          if (mirrorWasm.synth_set_version) {
+            mirrorWasm.synth_set_version(mirrorCtx, activeVersionId | 0);
+          }
+          if (mirrorWasm.synth_set_keyboard_mode) {
+            mirrorWasm.synth_set_keyboard_mode(mirrorCtx, isPianistSplit ? 1 : 0);
+          }
+          if (mirrorWasm.synth_set_split_note) {
+            mirrorWasm.synth_set_split_note(mirrorCtx, currentSplitNote | 0);
+          }
+          if (mirrorWasm.synth_set_stereo_width) {
+            mirrorWasm.synth_set_stereo_width(mirrorCtx, +currentStereoWidth);
+          }
+          if (mirrorWasm.synth_set_post_enabled) {
+            mirrorWasm.synth_set_post_enabled(mirrorCtx, postEnabled ? 1 : 0);
+          }
+          if (mirrorWasm.synth_set_post_params) {
+            mirrorWasm.synth_set_post_params(
+              mirrorCtx,
+              +postParams.compAmount,
+              +postParams.reverbMix,
+              +postParams.reverbSize,
+              +postParams.spatialAmount
+            );
+          }
+          if (mirrorWasm.synth_set_reverb_predelay) {
+            mirrorWasm.synth_set_reverb_predelay(mirrorCtx, +postParams.reverbPredelay);
+          }
+        } catch (_) {}
+
         node.port.postMessage({
           type: "init-wasm",
           wasmBytes,
@@ -707,7 +787,13 @@
         });
 
         workletNode = node;
-        requestAnimationFrame(drawFrequencySpectrum);
+        while (pendingMainMidi.length > 0) {
+          const ev = pendingMainMidi.shift();
+          workletNode.port.postMessage({ type: "midi", status: ev[0], data1: ev[1], data2: ev[2] });
+          if (mirrorWasm && mirrorCtx) {
+            mirrorWasm.synth_handle_midi(mirrorCtx, ev[0], ev[1], ev[2]);
+          }
+        }
       } catch (_) {
         audioInitPromise = null;
         if (audioLed) audioLed.className = "led bad";
@@ -721,24 +807,36 @@
     if (!audioLed) return;
     if (soundReady && audioCtx && audioCtx.state === "running") {
       audioLed.className = "led ok";
+      audioLed.title = "Audio engine running";
     } else if (soundReady) {
       audioLed.className = "led warn";
+      audioLed.title = "Browser paused audio on reload — click anywhere on the page to enable sound";
     }
   }
 
-  document.addEventListener("pointerdown", () => {
-    unlockAudioSynchronously();
-    ensureAudioStarted();
-  });
+  for (const evtName of ["pointerdown", "pointerup", "mousedown", "click", "touchstart", "touchend", "keydown", "keyup", "wheel"]) {
+    window.addEventListener(
+      evtName,
+      () => {
+        unlockAudioSynchronously();
+        ensureAudioStarted();
+      },
+      { passive: true }
+    );
+  }
 
-  document.addEventListener("keydown", () => {
+  window.addEventListener("focus", () => {
     unlockAudioSynchronously();
-    ensureAudioStarted();
   });
 
   function sendMidiToWorklet(status, data1, data2) {
+    if (mirrorWasm && mirrorCtx) {
+      mirrorWasm.synth_handle_midi(mirrorCtx, status, data1, data2);
+    }
     if (workletNode) {
       workletNode.port.postMessage({ type: "midi", status, data1, data2 });
+    } else {
+      pendingMainMidi.push([status, data1, data2]);
     }
   }
 
@@ -863,6 +961,14 @@
         type: "set-split-note",
         splitNote: currentSplitNote,
       });
+    }
+    if (mirrorWasm && mirrorCtx) {
+      if (mirrorWasm.synth_set_keyboard_mode) {
+        mirrorWasm.synth_set_keyboard_mode(mirrorCtx, isPianistSplit ? 1 : 0);
+      }
+      if (mirrorWasm.synth_set_split_note) {
+        mirrorWasm.synth_set_split_note(mirrorCtx, currentSplitNote | 0);
+      }
     }
   }
 
@@ -1329,10 +1435,85 @@
     ctx.stroke();
   }
 
-  function drawFrequencySpectrum() {
-    if (analyserNode) {
-      requestAnimationFrame(drawFrequencySpectrum);
+  function computeMirrorFftBins(ringBuf, smoothMag, outBytes) {
+    for (let i = 0; i < FFT_N; i++) {
+      fftRe[i] = ringBuf[i] * hannWin[i];
+      fftIm[i] = 0.0;
     }
+    // Bit-reversal permutation
+    let j = 0;
+    for (let i = 0; i < FFT_N; i++) {
+      if (i < j) {
+        const tr = fftRe[i];
+        fftRe[i] = fftRe[j];
+        fftRe[j] = tr;
+      }
+      let m = FFT_N >> 1;
+      while (m >= 1 && j >= m) {
+        j -= m;
+        m >>= 1;
+      }
+      j += m;
+    }
+    // Cooley-Tukey radix-2 butterflies
+    for (let len = 2; len <= FFT_N; len <<= 1) {
+      const half = len >> 1;
+      const ang = (-2.0 * Math.PI) / len;
+      const wMulRe = Math.cos(ang);
+      const wMulIm = Math.sin(ang);
+      for (let i = 0; i < FFT_N; i += len) {
+        let wRe = 1.0;
+        let wIm = 0.0;
+        for (let k = 0; k < half; k++) {
+          const uIdx = i + k;
+          const vIdx = uIdx + half;
+          const tRe = wRe * fftRe[vIdx] - wIm * fftIm[vIdx];
+          const tIm = wRe * fftIm[vIdx] + wIm * fftRe[vIdx];
+          fftRe[vIdx] = fftRe[uIdx] - tRe;
+          fftIm[vIdx] = fftIm[uIdx] - tIm;
+          fftRe[uIdx] += tRe;
+          fftIm[uIdx] += tIm;
+          const nextWRe = wRe * wMulRe - wIm * wMulIm;
+          wIm = wRe * wMulIm + wIm * wMulRe;
+          wRe = nextWRe;
+        }
+      }
+    }
+    // Convert to WebAudio AnalyserNode-equivalent dB byte bins (-100 dB .. -30 dB -> 0..255)
+    const invN = 2.0 / FFT_N;
+    for (let b = 0; b < FFT_BINS; b++) {
+      const mag = Math.hypot(fftRe[b], fftIm[b]) * invN;
+      const smoothed = 0.78 * smoothMag[b] + 0.22 * mag;
+      smoothMag[b] = smoothed;
+      const db = 20.0 * Math.log10(Math.max(smoothed, 1e-6));
+      const norm = Math.max(0.0, Math.min(1.0, (db + 100.0) / 70.0));
+      outBytes[b] = Math.round(norm * 255.0);
+    }
+  }
+
+  function stepMirrorQuantumsForSpectrum() {
+    if (!mirrorWasm || !mirrorCtx) return false;
+    const quantumsPerFrame = 6; // 6 * 128 = 768 samples (~16 ms at 48 kHz)
+    const totalNew = quantumsPerFrame * 128;
+    mirrorRingL.copyWithin(0, totalNew);
+    mirrorRingR.copyWithin(0, totalNew);
+    let writeOffset = FFT_N - totalNew;
+    for (let q = 0; q < quantumsPerFrame; q++) {
+      mirrorWasm.synth_render_quantum(mirrorCtx);
+      const memBuf = mirrorWasm.memory.buffer;
+      const wasmL = new Float32Array(memBuf, mirrorLeftPtr, 128);
+      const wasmR = new Float32Array(memBuf, mirrorRightPtr, 128);
+      mirrorRingL.set(wasmL, writeOffset);
+      mirrorRingR.set(wasmR, writeOffset);
+      writeOffset += 128;
+    }
+    computeMirrorFftBins(mirrorRingL, mirrorSmoothMagL, mirrorFreqBinsL);
+    computeMirrorFftBins(mirrorRingR, mirrorSmoothMagR, mirrorFreqBinsR);
+    return true;
+  }
+
+  function drawFrequencySpectrum() {
+    requestAnimationFrame(drawFrequencySpectrum);
     if (!canvas || !canvasCtx) return;
 
     const w = canvas.width;
@@ -1349,10 +1530,9 @@
     canvasCtx.lineTo(w, h * 0.66);
     canvasCtx.stroke();
 
-    if (!analyserNode) return;
     const sr = audioCtx ? audioCtx.sampleRate : 48000;
 
-    if (analyserL && analyserR) {
+    if (audioCtx && audioCtx.state === "running" && analyserL && analyserR) {
       const timeL = new Float32Array(analyserL.fftSize);
       const timeR = new Float32Array(analyserR.fftSize);
       analyserL.getFloatTimeDomainData(timeL);
@@ -1368,7 +1548,6 @@
       analyserL.getByteFrequencyData(freqL);
       analyserR.getByteFrequencyData(freqR);
 
-      // Draw Left (Bajos) frequency spectrum in Sage-Teal and Right (Cantabile) in Amber
       drawChannelSpectrumCurve(
         canvasCtx,
         freqL,
@@ -1381,6 +1560,30 @@
       drawChannelSpectrumCurve(
         canvasCtx,
         freqR,
+        sr,
+        w,
+        h,
+        "rgba(229, 169, 82, 0.95)",
+        "rgba(229, 169, 82, 0.22)"
+      );
+    } else if (stepMirrorQuantumsForSpectrum()) {
+      const pctL = computeRmsPercent(mirrorRingL);
+      const pctR = computeRmsPercent(mirrorRingR);
+      if (leftMeterBar) leftMeterBar.style.width = `${pctL}%`;
+      if (rightMeterBar) rightMeterBar.style.width = `${pctR}%`;
+
+      drawChannelSpectrumCurve(
+        canvasCtx,
+        mirrorFreqBinsL,
+        sr,
+        w,
+        h,
+        "rgba(99, 173, 165, 0.92)",
+        "rgba(99, 173, 165, 0.22)"
+      );
+      drawChannelSpectrumCurve(
+        canvasCtx,
+        mirrorFreqBinsR,
         sr,
         w,
         h,
@@ -1455,6 +1658,7 @@
     });
   }
 
+  ensureAudioStarted();
   drawFrequencySpectrum();
   initWebMIDI();
   requestAnimationFrame(() => {
