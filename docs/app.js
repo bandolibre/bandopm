@@ -1474,5 +1474,51 @@
     }
   }
 
+  // =========================================================================
+  // 5. Progressive Web App (PWA) Service Worker & Install Prompt
+  // =========================================================================
+  const installPwaBtn = document.getElementById("btn-install-pwa");
+  let deferredInstallPrompt = null;
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker
+        .register("./sw.js")
+        .then((reg) => {
+          logMidi(`PWA Service Worker active (scope: ${reg.scope})`);
+        })
+        .catch((err) => {
+          console.warn("PWA Service Worker registration failed:", err);
+        });
+    });
+  }
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    if (installPwaBtn) {
+      installPwaBtn.style.display = "inline-flex";
+    }
+  });
+
+  if (installPwaBtn) {
+    installPwaBtn.addEventListener("click", async () => {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      const { outcome } = await deferredInstallPrompt.userChoice;
+      logMidi(`PWA install prompt outcome: ${outcome}`);
+      deferredInstallPrompt = null;
+      installPwaBtn.style.display = "none";
+    });
+  }
+
+  window.addEventListener("appinstalled", () => {
+    deferredInstallPrompt = null;
+    if (installPwaBtn) {
+      installPwaBtn.style.display = "none";
+    }
+    logMidi("BandoPM installed as a standalone PWA!");
+  });
+
   initWebMIDI();
 })();

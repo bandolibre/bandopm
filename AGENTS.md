@@ -44,12 +44,15 @@ synth/
 ├── AGENTS.md
 ├── Cargo.toml                  # Rust workspace manifest
 ├── serve-web.sh                # Builds synth-wasm into docs/ and serves docs/ over HTTP
-├── docs/                       # GitHub Pages static web app root (website files only)
+├── docs/                       # GitHub Pages static web app & installable PWA root
 │   ├── .nojekyll               # Disables Jekyll processing on GitHub Pages
 │   ├── index.html              # Browser UI (BandoPM WebMIDI + AudioWorklet + Dual/Split keyboards)
-│   ├── app.js                  # WebMIDI, AudioWorklet host, 12-version selector (v1..v4), and UI logic
+│   ├── app.js                  # WebMIDI, AudioWorklet host, 12-version selector (v1..v4), and PWA logic
 │   ├── worklet-processor.js    # Real-time WebAudio AudioWorkletProcessor host
-│   └── synth_wasm.wasm         # Compiled WASM DSP module (committed for GitHub Pages)
+│   ├── synth_wasm.wasm         # Compiled WASM DSP module (committed for GitHub Pages)
+│   ├── manifest.webmanifest    # Progressive Web App (PWA) install manifest
+│   ├── sw.js                   # Offline-capable Service Worker precaching HTML/JS/WASM/icons
+│   └── icon.svg / icon-*.png   # Bandoneon app icons (SVG + 192/512/maskable PNGs)
 ├── reference_doc/              # Architectural & scientific reference documentation
 │   ├── VISION.md               # Product vision, goals, and phased roadmap
 │   ├── DESIGN.md               # Detailed DSP & software architecture

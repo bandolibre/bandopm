@@ -3,6 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f141c" />
+  <meta name="description" content="BandoPM — Real-Time Bandoneon Physical Modeling Synthesizer for Bandolibre (WebAssembly AudioWorklet + WebMIDI)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="BandoPM" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
   <title>BandoPM — Bandoneon Physical Modeling Synthesizer</title>
   <style>
     :root {
@@ -620,6 +629,7 @@
           <option value="">(scanning MIDI devices…)</option>
         </select>
         <span id="bwIndicator" class="bw-badge" title="Raw MIDI byte throughput">0.0 kb/s</span>
+        <button id="btn-install-pwa" class="btn-primary" style="display:none; background:#0284c7; border-color:#38bdf8; padding:6px 12px; font-size:0.82rem;" title="Install BandoPM as a standalone desktop/mobile Progressive Web App (works offline)">⬇ Install App</button>
       </div>
     </header>
 

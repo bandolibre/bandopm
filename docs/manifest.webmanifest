@@ -1,0 +1,40 @@
+{
+  "id": "./index.html",
+  "name": "BandoPM — Bandoneon Physical Modeling Synthesizer",
+  "short_name": "BandoPM",
+  "description": "Real-Time Bandoneon Physical Modeling Synthesizer for Bandolibre (WebAssembly AudioWorklet + WebMIDI)",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
+  "background_color": "#0f141c",
+  "theme_color": "#0f141c",
+  "categories": ["music", "entertainment", "utilities"],
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
