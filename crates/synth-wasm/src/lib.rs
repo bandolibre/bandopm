@@ -148,6 +148,17 @@ pub unsafe extern "C" fn synth_set_post_params(
     }
 }
 
+/// Sets the reverb pre-delay amount in `[0.0, 1.0]` (`0.5 ms .. 38 ms`).
+///
+/// # Safety
+/// `ctx` must be a valid pointer returned by `synth_create`.
+#[no_mangle]
+pub unsafe extern "C" fn synth_set_reverb_predelay(ctx: *mut WasmSynthContext, predelay: f32) {
+    if let Some(c) = ctx.as_mut() {
+        c.engine.set_reverb_predelay(predelay);
+    }
+}
+
 /// Returns the instantaneous bus compressor gain reduction in dB (`>= 0.0`).
 ///
 /// # Safety

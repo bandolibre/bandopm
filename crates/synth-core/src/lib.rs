@@ -203,6 +203,11 @@ impl SynthEngine {
     }
 
     #[inline]
+    pub fn set_reverb_predelay(&mut self, predelay: f32) {
+        self.post.reverb_predelay = predelay.clamp(0.0, 1.0);
+    }
+
+    #[inline]
     pub fn post_gain_reduction_db(&self) -> f32 {
         self.post.last_gain_reduction_db()
     }

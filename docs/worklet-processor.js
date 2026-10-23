@@ -45,6 +45,9 @@ class BandolibreProcessor extends AudioWorkletProcessor {
               +msg.postParams.reverbSize,
               +msg.postParams.spatialAmount
             );
+            if (msg.postParams.reverbPredelay !== undefined && this.wasmExports.synth_set_reverb_predelay) {
+              this.wasmExports.synth_set_reverb_predelay(this.ctxPtr, +msg.postParams.reverbPredelay);
+            }
           }
           for (const ev of this.pendingEvents) {
             this.wasmExports.synth_handle_midi(this.ctxPtr, ev[0], ev[1], ev[2]);
@@ -92,6 +95,9 @@ class BandolibreProcessor extends AudioWorkletProcessor {
             +msg.reverbSize,
             +msg.spatialAmount
           );
+          if (msg.reverbPredelay !== undefined && this.wasmExports.synth_set_reverb_predelay) {
+            this.wasmExports.synth_set_reverb_predelay(this.ctxPtr, +msg.reverbPredelay);
+          }
         }
       } else if (msg.type === 'set-version') {
         const vid = msg.versionId | 0;

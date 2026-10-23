@@ -105,6 +105,7 @@ pub struct PostProcessor {
     pub comp_amount: f32,
     pub reverb_mix: f32,
     pub reverb_size: f32,
+    pub reverb_predelay: f32,
     pub spatial_amount: f32,
 
     // Smoothed internal controls (prevents zipper clicks)
@@ -112,8 +113,10 @@ pub struct PostProcessor {
     comp_smooth: f32,
     rev_mix_smooth: f32,
     rev_size_smooth: f32,
+    rev_predelay_smooth: f32,
     spatial_smooth: f32,
     param_alpha: f32,
+    sr_scale: f32,
 
     // Stage 1: Binaural Haas Crossfeed & Sub-Bass Crossover
     haas_l: [f32; HAAS_BUF_LEN],
@@ -195,13 +198,16 @@ impl PostProcessor {
             comp_amount: 0.45,
             reverb_mix: 0.26,
             reverb_size: 0.50,
+            reverb_predelay: 0.35,
             spatial_amount: 0.55,
             enable_smooth: 0.0,
             comp_smooth: 0.45,
             rev_mix_smooth: 0.26,
             rev_size_smooth: 0.50,
+            rev_predelay_smooth: 0.35,
             spatial_smooth: 0.55,
             param_alpha,
+            sr_scale,
             haas_l: [0.0; HAAS_BUF_LEN],
             haas_r: [0.0; HAAS_BUF_LEN],
             haas_idx: 0,
@@ -288,6 +294,8 @@ impl PostProcessor {
             + (1.0 - self.param_alpha) * self.reverb_mix.clamp(0.0, 1.0);
         self.rev_size_smooth = self.param_alpha * self.rev_size_smooth
             + (1.0 - self.param_alpha) * self.reverb_size.clamp(0.0, 1.0);
+        self.rev_predelay_smooth = self.param_alpha * self.rev_predelay_smooth
+            + (1.0 - self.param_alpha) * self.reverb_predelay.clamp(0.0, 1.0);
         self.spatial_smooth = self.param_alpha * self.spatial_smooth
             + (1.0 - self.param_alpha) * self.spatial_amount.clamp(0.0, 1.0);
 
@@ -415,9 +423,10 @@ impl PostProcessor {
                 er_r += w_er * self.predelay_r[idx_r];
             }
 
-            // Pre-delay tap for late FDN/Schroeder tail (12 ms .. 26 ms based on reverb_size)
+            // Pre-delay tap for late FDN/Schroeder tail (0.5 ms .. 38 ms based on reverb_predelay)
             let predelay_samples =
-                (520 + (self.rev_size_smooth * 680.0) as usize).clamp(64, PREDELAY_BUF_LEN - 2);
+                (((24.0 + self.rev_predelay_smooth * 1800.0) * self.sr_scale) as usize)
+                    .clamp(16, PREDELAY_BUF_LEN - 2);
             let pd_idx =
                 (self.predelay_idx + PREDELAY_BUF_LEN - predelay_samples) & (PREDELAY_BUF_LEN - 1);
             self.predelay_idx = (self.predelay_idx + 1) & (PREDELAY_BUF_LEN - 1);
