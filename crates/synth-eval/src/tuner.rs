@@ -25,18 +25,9 @@ pub fn tune_preset(
     );
 
     let ver = best_preset.version;
-    let use_aero = matches!(
-        ver,
-        SynthVersion::V3AeroRadiation | SynthVersion::V3Unified | SynthVersion::V4Unified
-    );
-    let use_beam = matches!(
-        ver,
-        SynthVersion::V3ClampedBar | SynthVersion::V3Unified | SynthVersion::V4Unified
-    );
-    let use_tran = matches!(
-        ver,
-        SynthVersion::V3TransientEntrain | SynthVersion::V3Unified | SynthVersion::V4Unified
-    );
+    let use_aero = ver.use_v3_aero();
+    let use_beam = ver.use_v3_beam();
+    let use_tran = ver.use_v3_tran();
     let use_v4_cab = ver.use_v4_cabinet();
     let use_v4_slot = ver.use_v4_slot();
     let use_v4_coupled = ver.use_v4_coupled();

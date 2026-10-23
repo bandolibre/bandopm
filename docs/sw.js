@@ -1,4 +1,4 @@
-const CACHE_NAME = "bandopm-pwa-v4-2";
+const CACHE_NAME = "bandopm-pwa-v5-1";
 const PRECACHE_ASSETS = [
   "./",
   "./index.html",

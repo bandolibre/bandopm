@@ -31,7 +31,7 @@ struct Cli {
     #[arg(long, default_value = "assets/presets/default_bandoneon.json")]
     preset: PathBuf,
 
-    /// Optional synthesis version override (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`, `v4_cabinet`, `v4_slot`, `v4_coupled`, `v4_celda`, `v4_zapatilla`, `v4`)
+    /// Optional synthesis version override (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`, `v4_cabinet`, `v4_slot`, `v4_coupled`, `v4_celda`, `v4_zapatilla`, `v4`, `v5`)
     #[arg(long)]
     version: Option<String>,
 
@@ -65,7 +65,7 @@ enum Commands {
     },
     /// Print detailed per-hand, per-dynamic, and per-pitch-band physical diagnostics
     Diagnose,
-    /// Evaluate and compare all 12 synthesis versions (`v1`..`v4`)
+    /// Evaluate and compare all 13 synthesis versions (`v1`..`v5`)
     Compare,
 }
 
@@ -81,7 +81,7 @@ fn load_or_create_preset(path: &Path, version_override: Option<&str>) -> Result<
     if let Some(v_str) = version_override {
         let ver = SynthVersion::from_slug(v_str).with_context(|| {
             format!(
-                "Unknown synthesis version '{}'. Expected one of: v1, v2, v3_aero, v3_beam, v3_transient, v3, v4_cabinet, v4_slot, v4_coupled, v4_celda, v4_zapatilla, v4",
+                "Unknown synthesis version '{}'. Expected one of: v1, v2, v3_aero, v3_beam, v3_transient, v3, v4_cabinet, v4_slot, v4_coupled, v4_celda, v4_zapatilla, v4, v5",
                 v_str
             )
         })?;
@@ -295,7 +295,7 @@ fn run_compare_all(golden: &[CachedGoldenSample], sr: u32, out_dir: &Path) -> Re
         std::fs::write(web_cmp, &cmp_json)?;
     }
 
-    let mut md = String::from("# Multi-Version Synthesis Comparison Report (`v1` .. `v4`)\n\n");
+    let mut md = String::from("# Multi-Version Synthesis Comparison Report (`v1` .. `v5`)\n\n");
     md.push_str("| Version | Description | Train Score | Val Score | Perf Score | 1. Harmonic (Val) | 2. Transients (Val) | 3. Dual-Reed (Val) | 4. Pitch (Val) | 5. Body (Val) | 16-Voice CPU | Headroom | Gates |\n");
     md.push_str("| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |\n");
     for e in &entries {

@@ -22,12 +22,26 @@ pub struct BellowsModel {
     pub table_mode: bool,
     /// Fallback pressure derived from active note velocity in Table Mode.
     table_mode_pressure: f32,
+    /// Natural sustain pulsation depth on held notes (`0.0` in `v1..v4`, active in `v5`).
+    pulsation_depth: f32,
+    /// Number of consecutive audio samples with stationary CC#11 / expression input.
+    steady_control_samples: u32,
+    /// Envelope tracking how long bellows pressure has been held steady (`[0.0, 1.0]`).
+    steady_hold_env: f32,
+    /// Primary physiological *fueye* sustain pulsation phase `[0.0, 1.0)` (~1.55 Hz).
+    pulse_phase_1: f32,
+    /// Secondary acoustic shimmer phase `[0.0, 1.0)` (~3.40 Hz).
+    pulse_phase_2: f32,
+    pulse_inc_1: f32,
+    pulse_inc_2: f32,
+    hold_rise_inc: f32,
 }
 
 impl BellowsModel {
     pub fn new(sample_rate: f32) -> Self {
+        let sr = sample_rate.max(8000.0);
         let mut model = Self {
-            sample_rate: sample_rate.max(8000.0),
+            sample_rate: sr,
             target_cc11: 0.0,
             target_pressure: 0.0,
             current_pressure: 0.0,
@@ -38,9 +52,22 @@ impl BellowsModel {
             impulse_decay_coeff: 0.999,
             table_mode: false,
             table_mode_pressure: 0.0,
+            pulsation_depth: 0.0,
+            steady_control_samples: 0,
+            steady_hold_env: 0.0,
+            pulse_phase_1: 0.0,
+            pulse_phase_2: 0.25,
+            pulse_inc_1: 1.55 / sr,
+            pulse_inc_2: 3.40 / sr,
+            hold_rise_inc: 1.0 / (0.18 * sr),
         };
         model.set_smoothing(1.25, 3.5, 8.0);
         model
+    }
+
+    #[inline]
+    pub fn set_pulsation_depth(&mut self, depth: f32) {
+        self.pulsation_depth = depth.clamp(0.0, 0.25);
     }
 
     pub fn set_smoothing(&mut self, gamma: f32, attack_ms: f32, release_ms: f32) {
@@ -65,6 +92,10 @@ impl BellowsModel {
     #[inline]
     pub fn set_cc11(&mut self, cc11: u8) {
         let norm = (cc11.min(127) as f32) / 127.0;
+        if (norm - self.target_cc11).abs() > 1e-6 {
+            self.steady_control_samples = 0;
+            self.steady_hold_env = 0.0;
+        }
         self.target_cc11 = norm;
         self.target_pressure = if norm <= 0.0 {
             0.0
@@ -77,6 +108,10 @@ impl BellowsModel {
     #[inline]
     pub fn set_expression_norm(&mut self, expr: f32) {
         let norm = expr.clamp(0.0, 1.0);
+        if (norm - self.target_cc11).abs() > 1e-6 {
+            self.steady_control_samples = 0;
+            self.steady_hold_env = 0.0;
+        }
         self.target_cc11 = norm;
         self.target_pressure = if norm <= 0.0 {
             0.0
@@ -113,13 +148,14 @@ impl BellowsModel {
             self.target_pressure
         };
 
-        let coeff = if raw_target > self.current_pressure {
+        let delta = raw_target - self.current_pressure;
+        let coeff = if delta > 0.0 {
             self.attack_coeff
         } else {
             self.release_coeff
         };
 
-        self.current_pressure += coeff * (raw_target - self.current_pressure);
+        self.current_pressure += coeff * delta;
         if self.current_pressure.abs() < 1e-12 {
             self.current_pressure = 0.0;
         }
@@ -129,9 +165,35 @@ impl BellowsModel {
             self.velocity_impulse = 0.0;
         }
 
+        let pulse_scale = if self.pulsation_depth > 0.0 {
+            self.steady_control_samples = self.steady_control_samples.saturating_add(1);
+            if self.steady_control_samples > 4800 && self.velocity_impulse < 5.0e-4 {
+                self.steady_hold_env = (self.steady_hold_env + self.hold_rise_inc).min(1.0);
+            } else {
+                self.steady_hold_env *= 0.995;
+            }
+            self.pulse_phase_1 += self.pulse_inc_1;
+            if self.pulse_phase_1 >= 1.0 {
+                self.pulse_phase_1 -= 1.0;
+            }
+            self.pulse_phase_2 += self.pulse_inc_2;
+            if self.pulse_phase_2 >= 1.0 {
+                self.pulse_phase_2 -= 1.0;
+            }
+            let c1 = 2.0 * self.pulse_phase_1 - 1.0;
+            let s1 = 4.0 * c1 * (1.0 - c1.abs());
+            let c2 = 2.0 * self.pulse_phase_2 - 1.0;
+            let s2 = 4.0 * c2 * (1.0 - c2.abs());
+            let wave = 0.72 * s1 + 0.28 * s2; // zero-mean physiological fueye respiration in [-1, 1]
+            1.0 + self.pulsation_depth * self.steady_hold_env * wave
+        } else {
+            1.0
+        };
+
         // Shared manifold pressure drop proportional to total airflow drawn by active reeds
         let drop = (chamber_coupling * 0.02 * total_volume_flow.abs()).min(0.25);
-        ((self.current_pressure + self.velocity_impulse) * (1.0 - drop)).clamp(0.0, 1.5)
+        ((self.current_pressure * pulse_scale + self.velocity_impulse) * (1.0 - drop))
+            .clamp(0.0, 1.5)
     }
 
     #[inline]

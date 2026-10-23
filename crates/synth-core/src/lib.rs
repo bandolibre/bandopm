@@ -83,6 +83,11 @@ impl SynthEngine {
             preset.bellows_attack_ms,
             preset.bellows_release_ms,
         );
+        bellows.set_pulsation_depth(if preset.version.use_v5_vivo() {
+            0.068
+        } else {
+            0.0
+        });
         let body = BodyResonator::new_from_preset(sr, &preset);
         let voices =
             core::array::from_fn(|i| BandoneonVoice::new((i as u32 + 1).wrapping_mul(0x9E37_79B9)));
@@ -117,6 +122,11 @@ impl SynthEngine {
             preset.bellows_attack_ms,
             preset.bellows_release_ms,
         );
+        self.bellows.set_pulsation_depth(if preset.version.use_v5_vivo() {
+            0.068
+        } else {
+            0.0
+        });
         self.body.update_from_preset(preset);
         for v in &mut self.voices {
             v.refresh_preset(preset, self.sample_rate);
@@ -633,7 +643,7 @@ mod tests {
 
             let mut prev_l = *buf_l.last().unwrap();
             let mut prev_r = *buf_r.last().unwrap();
-            for (step_i, &ver_idx) in [0usize, 11, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 11]
+            for (step_i, &ver_idx) in [0usize, 12, 11, 5, 6, 7, 8, 9, 10, 1, 2, 3, 4, 12]
                 .iter()
                 .enumerate()
             {
@@ -907,5 +917,43 @@ mod tests {
         synth.render(&mut left, &mut right);
         let cleared_rms = (left.iter().map(|x| x * x).sum::<f32>() / 128.0).sqrt();
         assert!(cleared_rms < 1e-5, "Expected silence after AllNotesOff, got {cleared_rms}");
+    }
+
+    #[test]
+    fn test_v5_vivo_staged_attack_and_sustain_pulsation() {
+        let mut synth = SynthEngine::new(
+            48000.0,
+            BandoneonPreset::for_version(SynthVersion::V5Vivo),
+        );
+        assert_eq!(synth.version(), SynthVersion::V5Vivo);
+        synth.handle_midi_event(MidiEvent::ControlChange11(104));
+        // Warm up steady CC#11 pressure for 10ms before NoteOn
+        let mut warm = [0.0f32; 480];
+        synth.render_mono(&mut warm);
+
+        synth.handle_midi_event(MidiEvent::NoteOn {
+            note: 57, // A3 = 220 Hz
+            velocity: 112,
+            hand: Hand::LeftBajos,
+        });
+
+        // Render 1 second of sustained audio
+        let mut buf = [0.0f32; 48000];
+        synth.render_mono(&mut buf);
+        assert!(buf.iter().all(|x| x.is_finite() && x.abs() <= 1.0));
+
+        // Verify sustain pulsation modulates short-term RMS across 45ms windows during 0.25s..0.95s
+        let win = 2160; // 45 ms at 48 kHz
+        let mut min_rms = f32::MAX;
+        let mut max_rms = 0.0f32;
+        for chunk in buf[12000..45600].chunks_exact(win) {
+            let rms = (chunk.iter().map(|x| x * x).sum::<f32>() / win as f32).sqrt();
+            min_rms = min_rms.min(rms);
+            max_rms = max_rms.max(rms);
+        }
+        assert!(
+            max_rms > min_rms * 1.04,
+            "Expected natural sustain pulsation on v5 held note: min_rms={min_rms}, max_rms={max_rms}"
+        );
     }
 }

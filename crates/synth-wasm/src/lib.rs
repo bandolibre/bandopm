@@ -13,7 +13,7 @@ pub struct WasmSynthContext {
 pub extern "C" fn synth_create(sample_rate: f32) -> *mut WasmSynthContext {
     let presets: [BandoneonPreset; SynthVersion::COUNT] =
         core::array::from_fn(|i| BandoneonPreset::for_version(SynthVersion::from_u8(i as u8)));
-    let preset = presets[SynthVersion::V4Unified as usize].clone();
+    let preset = presets[SynthVersion::V5Vivo as usize].clone();
     let mut engine = SynthEngine::new(sample_rate, preset);
     engine.set_post_enabled(true);
     let ctx = Box::new(WasmSynthContext {
@@ -57,7 +57,7 @@ pub unsafe extern "C" fn synth_set_table_mode(ctx: *mut WasmSynthContext, enable
     }
 }
 
-/// Switches the active synthesis model version (`0..=11`) without heap allocation on the audio thread.
+/// Switches the active synthesis model version (`0..=12`) without heap allocation on the audio thread.
 ///
 /// # Safety
 /// `ctx` must be a valid pointer returned by `synth_create`.
@@ -70,7 +70,7 @@ pub unsafe extern "C" fn synth_set_version(ctx: *mut WasmSynthContext, version_i
     }
 }
 
-/// Returns the active synthesis model version ID (`0..=11`).
+/// Returns the active synthesis model version ID (`0..=12`).
 ///
 /// # Safety
 /// `ctx` must be a valid pointer returned by `synth_create`.
@@ -79,7 +79,7 @@ pub unsafe extern "C" fn synth_get_version(ctx: *const WasmSynthContext) -> u8 {
     if let Some(c) = ctx.as_ref() {
         c.engine.version().as_u8()
     } else {
-        SynthVersion::V4Unified.as_u8()
+        SynthVersion::V5Vivo.as_u8()
     }
 }
 
@@ -191,17 +191,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_wasm_c_abi_all_12_versions_and_bounds() {
+    fn test_wasm_c_abi_all_13_versions_and_bounds() {
         unsafe {
             let ctx = synth_create(48000.0);
             assert!(!ctx.is_null());
-            assert_eq!(synth_get_version(ctx), 11); // Default V4Unified
+            assert_eq!(synth_get_version(ctx), 12); // Default V5Vivo
 
             synth_handle_midi(ctx, 0xB0, 11, 100);
             synth_handle_midi(ctx, 0x90, 45, 100); // A2 LeftBajos
             synth_handle_midi(ctx, 0x91, 69, 100); // A4 RightCantabile
 
-            for vid in 0..=11u8 {
+            for vid in 0..=12u8 {
                 synth_set_version(ctx, vid);
                 assert_eq!(synth_get_version(ctx), vid);
                 synth_render_quantum(ctx);
@@ -213,9 +213,9 @@ mod tests {
                 assert!(r_slice.iter().all(|x| x.is_finite() && x.abs() <= 1.0));
             }
 
-            // Out-of-bounds version ID falls back to V4Unified (11)
+            // Out-of-bounds version ID falls back to V5Vivo (12)
             synth_set_version(ctx, 99);
-            assert_eq!(synth_get_version(ctx), 11);
+            assert_eq!(synth_get_version(ctx), 12);
 
             synth_destroy(ctx);
         }

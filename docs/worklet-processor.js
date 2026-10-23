@@ -52,7 +52,7 @@ class BandolibreProcessor extends AudioWorkletProcessor {
           this.pendingEvents = [];
           const activeVersionId = this.wasmExports.synth_get_version
             ? this.wasmExports.synth_get_version(this.ctxPtr)
-            : 11;
+            : 12;
           this.port.postMessage({ type: 'ready', sampleRate, activeVersionId });
         } catch (err) {
           this.port.postMessage({ type: 'error', message: String(err) });

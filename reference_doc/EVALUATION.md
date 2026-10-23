@@ -185,33 +185,34 @@ Per architectural decision, **fast native Rust CPU benchmarks** and a continuous
 
 ---
 
-## 6. Structured Scorecard Schema (`target/eval/scorecard.json`) & 12-Version Comparison
+## 6. Structured Scorecard Schema (`target/eval/scorecard.json`) & 13-Version Comparison
 
-Every run of `cargo run --release -p synth-eval` (or `cargo run --release -p synth-eval -- diagnose` for detailed per-manual, per-dynamic, and per-pitch-region error breakdowns, and `cargo run --release -p synth-eval -- compare` to evaluate all 12 synthesis versions side by side) writes both human/LLM-friendly Markdown summaries (`target/eval/scorecard.md`, `target/eval/version_comparison.md`) and machine-readable JSON files (`target/eval/scorecard.json`, `target/eval/version_comparison.json`).
+Every run of `cargo run --release -p synth-eval` (or `cargo run --release -p synth-eval -- diagnose` for detailed per-manual, per-dynamic, and per-pitch-region error breakdowns, and `cargo run --release -p synth-eval -- compare` to evaluate all 13 synthesis versions side by side) writes both human/LLM-friendly Markdown summaries (`target/eval/scorecard.md`, `target/eval/version_comparison.md`) and machine-readable JSON files (`target/eval/scorecard.json`, `target/eval/version_comparison.json`).
 
-### 12-Version (`v1`..`v4`) Evaluation Progression
-Across all 328 golden Alfred Arnold bandoneon recordings (`219 train`, `109 held-out val`), evaluating all 12 physical modeling versions (`SynthVersion`) demonstrates monotonic progression from `v1` (`60.32` Val) to `v2` (`64.25` Val), across `v3` (`64.57` Val), across each individual `v4` physical modeling direction (`v4_cabinet`, `v4_slot`, `v4_coupled`, `v4_celda`, `v4_zapatilla`: `66.05..66.07` Train / `64.57..64.58` Val, with every direction strictly improving both Train and Val losses over `v3`), and culminating in the unified **`v4` (`V4Unified`)** physical model (**`66.07` Train / `64.60` Val / `71.91` Perf**, `+0.35` Val over `v2` and `+4.28` Val over `v1`, with zero roughness regularization penalty $L_{\text{reg}} = 0.0000$):
+### 13-Version (`v1`..`v5`) Evaluation Progression
+Across all 328 golden Alfred Arnold bandoneon recordings (`219 train`, `109 held-out val`), evaluating all 13 physical modeling versions (`SynthVersion`) demonstrates monotonic progression from `v1` (`59.75` Val) to `v2` (`63.52` Val), across `v3` (`63.84` Val), across `v4` (`63.87` Val), and culminating in the default expressive **`v5` (`V5Vivo`)** physical model (**`65.36` Train / `64.14` Held-Out Validation / `71.67` Perf**, `+0.27` Val over `v4`, `+0.62` Val over `v2`, and `+4.39` Val over `v1`, with zero roughness regularization penalty $L_{\text{reg}} = 0.0000$):
 
 | Version | Physical Model & Investigation Direction | Train (/100) | Held-Out Val (/100) | $\Delta$ Val vs `v2` | Perf (/100) | Harm (35%) | Tran (25%) | Dual $8'+4'$ (20%) | Pitch (10%) | Body (10%) | 16-Voice CPU | Gates |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **`v1`** | Baseline Lumped Odd-Clipper + Shared Body EQ | 61.95 | 60.32 | `-3.93` | 85.86 | 55.12 | 63.05 | 54.15 | 81.87 | 67.66 | `152.4 us` | PASS |
-| **`v2`** | 1st-Order ADAA + 1-Pole Baffle + Coupled Celda | 65.87 | 64.25 | `0.00` (base) | 78.22 | 62.23 | 64.86 | 56.60 | 81.87 | 70.90 | `245.6 us` | PASS |
-| **`v3_aero`** | **v3 Dir 1**: Quadrature Monopole $dU/dt$ Radiation & 2-Pole Dipole Baffle | 65.92 | 64.45 | `+0.20` | 75.26 | 62.40 | 65.45 | 56.55 | 81.87 | 70.95 | `284.2 us` | PASS |
-| **`v3_beam`** | **v3 Dir 2**: Zero-Sum Barycentric Slot Softening & Clamped-Bar Modes | 65.90 | 64.31 | `+0.06` | 74.56 | 62.28 | 65.01 | 56.64 | 81.87 | 70.92 | `293.5 us` | PASS |
-| **`v3_transient`** | **v3 Dir 3**: Low-Bass *Lastre* Inertia, Hopf Lag & Staccato Chiff | 65.91 | 64.31 | `+0.06` | 77.59 | 62.32 | 64.86 | 56.74 | 81.87 | 70.95 | `253.7 us` | PASS |
-| **`v3`** | **v3 Unified**: v3 Dir 1 + Dir 2 + Dir 3 Co-Calibrated | 66.05 | 64.57 | `+0.32` | 72.57 | 62.54 | 65.50 | 56.79 | 81.87 | 71.03 | `320.6 us` | PASS |
-| **`v4_cabinet`** | **v4 Dir 1**: Deconvolved 10-Mode Wooden Box & Early-Reflection FIR | 66.06 | 64.58 | `+0.33` | 72.61 | 62.57 | 65.50 | 56.79 | 81.87 | 71.04 | `320.1 us` | PASS |
-| **`v4_slot`** | **v4 Dir 2**: 3-Regime Plate-Channel Slot Transit & Vowel Swell ADAA | 66.07 | 64.58 | `+0.33` | 72.72 | 62.56 | 65.51 | 56.80 | 81.87 | 71.04 | `318.5 us` | PASS |
-| **`v4_coupled`** | **v4 Dir 3**: 2nd-Order Coupled Reed ODE, Startup Chirp & Celda Feedback | 66.05 | 64.58 | `+0.33` | 72.69 | 62.56 | 65.50 | 56.79 | 81.87 | 71.05 | `319.0 us` | PASS |
-| **`v4_celda`** | **v4 Dir 4**: Pitch-Scaled Individual *Celda* Cavity Resonator (*Okada 2025*) | 66.05 | 64.57 | `+0.32` | 72.49 | 62.55 | 65.50 | 56.79 | 81.87 | 71.03 | `321.7 us` | PASS |
-| **`v4_zapatilla`** | **v4 Dir 5**: Leather Pallet Thump & Closed-Valve Muffled Ring-Down | 66.05 | 64.57 | `+0.32` | 72.74 | 62.54 | 65.50 | 56.79 | 81.87 | 71.05 | `318.3 us` | PASS |
-| **`v4` (Default)** | **Unified SOTA v4**: All 5 v4 Directions Co-Calibrated + Fast ADAA/Trig | **66.07** | **64.60** | **`+0.35`** | **71.91** | **62.60** | **65.51** | **56.79** | **81.87** | **71.09** | **`329.7 us`** | **PASS** |
+| **`v1`** | Baseline Lumped Odd-Clipper + Shared Body EQ | 61.36 | 59.75 | `-3.77` | 87.01 | 55.66 | 60.41 | 53.72 | 82.66 | 66.23 | `139.0 us` | PASS |
+| **`v2`** | 1st-Order ADAA + 1-Pole Baffle + Coupled Celda | 65.06 | 63.52 | `0.00` (base) | 79.31 | 63.26 | 61.99 | 56.11 | 82.66 | 68.18 | `232.0 us` | PASS |
+| **`v3_aero`** | **v3 Dir 1**: Quadrature Monopole $dU/dt$ Radiation & 2-Pole Dipole Baffle | 65.11 | 63.70 | `+0.18` | 77.78 | 63.39 | 62.66 | 56.08 | 82.66 | 68.25 | `252.6 us` | PASS |
+| **`v3_beam`** | **v3 Dir 2**: Zero-Sum Barycentric Slot Softening & Clamped-Bar Modes | 65.08 | 63.57 | `+0.05` | 76.29 | 63.31 | 62.17 | 56.15 | 82.66 | 68.20 | `272.7 us` | PASS |
+| **`v3_transient`** | **v3 Dir 3**: Low-Bass *Lastre* Inertia, Hopf Lag & Staccato Chiff | 65.10 | 63.58 | `+0.06` | 79.16 | 63.34 | 61.99 | 56.25 | 82.66 | 68.24 | `234.2 us` | PASS |
+| **`v3`** | **v3 Unified**: v3 Dir 1 + Dir 2 + Dir 3 Co-Calibrated | 65.24 | 63.84 | `+0.32` | 73.26 | 63.55 | 62.71 | 56.30 | 82.66 | 68.33 | `312.3 us` | PASS |
+| **`v4_cabinet`** | **v4 Dir 1**: Deconvolved 10-Mode Wooden Box & Early-Reflection FIR | 65.25 | 63.85 | `+0.33` | 73.28 | 63.57 | 62.71 | 56.30 | 82.66 | 68.35 | `312.0 us` | PASS |
+| **`v4_slot`** | **v4 Dir 2**: 3-Regime Plate-Channel Slot Transit & Vowel Swell ADAA | 65.25 | 63.85 | `+0.33` | 73.25 | 63.57 | 62.71 | 56.30 | 82.66 | 68.34 | `312.5 us` | PASS |
+| **`v4_coupled`** | **v4 Dir 3**: 2nd-Order Coupled Reed ODE, Startup Chirp & Celda Feedback | 65.24 | 63.84 | `+0.32` | 73.51 | 63.57 | 62.71 | 56.30 | 82.66 | 68.35 | `309.0 us` | PASS |
+| **`v4_celda`** | **v4 Dir 4**: Pitch-Scaled Individual *Celda* Cavity Resonator (*Okada 2025*) | 65.24 | 63.84 | `+0.32` | 73.50 | 63.56 | 62.71 | 56.30 | 82.66 | 68.34 | `309.1 us` | PASS |
+| **`v4_zapatilla`** | **v4 Dir 5**: Leather Pallet Thump & Closed-Valve Muffled Ring-Down | 65.24 | 63.84 | `+0.32` | 73.47 | 63.55 | 62.71 | 56.30 | 82.66 | 68.35 | `309.6 us` | PASS |
+| **`v4`** | **Unified SOTA v4**: All 5 v4 Directions Co-Calibrated + Fast ADAA/Trig | 65.27 | 63.87 | `+0.35` | 72.60 | 63.61 | 62.72 | 56.30 | 82.66 | 68.39 | `320.9 us` | PASS |
+| **`v5` (Default)** | **v5 Vivo Expressive**: Staged $8' \to 4'$ Attack + Sustain Pulsation + Low-Mid Body & Treble Clarity | **65.36** | **64.14** | **`+0.62`** | **71.67** | **63.61** | **62.91** | **56.79** | **82.66** | **68.56** | **`333.0 us`** | **PASS** |
 
-All 12 versions pass every deterministic stability, silence convergence ($< -90\text{ dBFS}$), smoothness ($L_{\text{reg}} = 0.0000$), and native CPU gate ($< 350\ \mu\text{s}$ per 128-sample quantum for 16 active voices / 32 coupled reeds at `48 kHz`).
+All 13 versions pass every deterministic stability, silence convergence ($< -90\text{ dBFS}$), smoothness ($L_{\text{reg}} = 0.0000$), and native CPU gate ($< 350\ \mu\text{s}$ per 128-sample quantum for 16 active voices / 32 coupled reeds at `48 kHz`).
 
 ```json
 {
-  "preset_name": "Alfred Arnold (AA) Physical Model v4 (Deconvolved Cabinet + 3-Regime Slot + Coupled ODE + Celda + Zapatilla)",
+  "preset_name": "Alfred Arnold (AA) Physical Model v5 Vivo (Staged 8'->4' Attack + Sustain Pulsation + Low-Mid Body & Treble Clarity)",
   "gates": {
     "passed_all": true,
     "stability_no_nan_or_inf": true,
@@ -222,17 +223,17 @@ All 12 versions pass every deterministic stability, silence convergence ($< -90\
     "sample_rate_hz": 48000,
     "quantum_samples": 128,
     "realtime_quantum_us": 2666.7,
-    "voice_1_us_per_quantum": 27.8,
-    "voice_16_us_per_quantum": 329.7,
+    "voice_1_us_per_quantum": 27.6,
+    "voice_16_us_per_quantum": 333.0,
     "voice_16_budget_us": 350.0,
-    "core_utilization_16v_pct": 12.36,
-    "realtime_headroom_factor": 8.09,
-    "performance_score": 71.91
+    "core_utilization_16v_pct": 12.49,
+    "realtime_headroom_factor": 8.01,
+    "performance_score": 71.67
   },
   "scores": {
-    "composite_train_score": 66.07,
-    "composite_val_score": 64.60,
-    "performance_score": 71.91,
+    "composite_train_score": 65.36,
+    "composite_val_score": 64.14,
+    "performance_score": 71.67,
     "regularization_penalty": 0.0
   }
 }

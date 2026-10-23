@@ -80,8 +80,12 @@ pub struct SignedDeltasReport {
     pub pallet_click_err_db: f32,
     /// Signed octave beat frequency error in Hz (synth - gold).
     pub beat_freq_err_hz: f32,
-    /// Signed dual-reed onset lag error in ms (synth - gold) at soft dynamic `p`.
+    /// Signed dual-reed onset lag error in ms (synth - gold).
     pub dual_reed_onset_lag_err_ms: f32,
+    /// Signed low-mid body warmth error in dB (250–500 Hz bands, synth - gold).
+    pub low_mid_body_err_db: f32,
+    /// Signed treble clarity error in dB (2000–4000 Hz bands, synth - gold).
+    pub treble_clarity_err_db: f32,
     /// Signed pitch bend drift from `p` to `f` in cents (synth - gold).
     pub drift_p_to_f_err_cents: f32,
     /// Signed dB error across the 6 wooden body formant octave bands (125Hz..4kHz).
@@ -146,28 +150,43 @@ pub fn evaluate_preset(
             let mean_h_db_err = h_err_sum / w_sum;
             let centroid_rel_err = ((synth.spectral_centroid_hz - g.spectral_centroid_hz).abs())
                 / g.spectral_centroid_hz.max(100.0);
-            let loss_harmonic = (mean_h_db_err / 18.0) + 0.45 * centroid_rel_err;
+            let treble_clarity_err = ((0.5
+                * (synth.octave_band_rel_db[4] + synth.octave_band_rel_db[5]))
+                - (0.5 * (g.octave_band_rel_db[4] + g.octave_band_rel_db[5])))
+                .abs();
+            let loss_harmonic = 0.88 * (mean_h_db_err / 18.0)
+                + 0.45 * centroid_rel_err
+                + 0.12 * (treble_clarity_err / 12.0);
 
-            // 2. Transient loss: attack rise time error + click energy error
+            // 2. Transient loss: attack rise time error + click energy error + staged 8'->4' onset lag
             let rise_err_ms = (synth.attack_rise_ms - g.attack_rise_ms).abs();
             let click_err_db = (synth.click_energy_db - g.click_energy_db).abs();
-            let loss_transient = (rise_err_ms / 45.0) + (click_err_db / 24.0);
+            let lag_err_ms = (synth.dual_reed_onset_lag_ms - g.dual_reed_onset_lag_ms).abs();
+            let loss_transient =
+                0.92 * (rise_err_ms / 45.0) + 0.92 * (click_err_db / 24.0) + 0.16 * (lag_err_ms / 28.0);
 
-            // 3. Dual-reed interaction loss: 4'/8' ratio + beating rate + onset lag
+            // 3. Dual-reed interaction loss: 4'/8' ratio + sustain pulsation rate + staged onset lag
             let oct_err_db = (synth.octave_4ft_to_8ft_db - g.octave_4ft_to_8ft_db).abs();
             let beat_err_hz = (synth.beat_freq_hz - g.beat_freq_hz).abs();
-            let lag_err_ms = (synth.dual_reed_onset_lag_ms - g.dual_reed_onset_lag_ms).abs();
             let loss_dual_reed =
-                (oct_err_db / 14.0) + 0.15 * (beat_err_hz / 2.5) + 0.15 * (lag_err_ms / 35.0);
+                0.92 * (oct_err_db / 14.0) + 0.18 * (beat_err_hz / 2.4) + 0.18 * (lag_err_ms / 28.0);
 
-            // 5. Body resonance & air noise loss
+            // 5. Body resonance (including low-mid 250-500 Hz warmth vs 1 kHz boxiness balance) & air noise loss
             let mut band_err_sum = 0.0f32;
             for b in 0..NUM_BODY_BANDS {
                 band_err_sum += (synth.octave_band_rel_db[b] - g.octave_band_rel_db[b]).abs();
             }
             let mean_band_err = band_err_sum / (NUM_BODY_BANDS as f32);
+            let synth_body_tilt = 0.5
+                * (synth.octave_band_rel_db[1] + synth.octave_band_rel_db[2])
+                - synth.octave_band_rel_db[3];
+            let gold_body_tilt =
+                0.5 * (g.octave_band_rel_db[1] + g.octave_band_rel_db[2]) - g.octave_band_rel_db[3];
+            let body_tilt_err = (synth_body_tilt - gold_body_tilt).abs();
             let noise_err = (synth.air_noise_floor_db - g.air_noise_floor_db).abs();
-            let loss_body = (mean_band_err / 14.0) + 0.35 * (noise_err / 25.0);
+            let loss_body = 0.82 * (mean_band_err / 14.0)
+                + 0.18 * (body_tilt_err / 12.0)
+                + 0.35 * (noise_err / 25.0);
 
             SampleEvalResult {
                 is_val: item.meta.split == "val",
@@ -359,7 +378,7 @@ pub fn evaluate_preset(
         &|r| r.synth.beat_freq_hz - r.gold.beat_freq_hz,
     );
     let dual_reed_onset_lag_err_ms = dyn_avg(
-        &|r| r.dynamic == "p",
+        &|_| true,
         &|r| r.synth.dual_reed_onset_lag_ms - r.gold.dual_reed_onset_lag_ms,
     );
 
@@ -370,6 +389,8 @@ pub fn evaluate_preset(
             &|r| r.synth.octave_band_rel_db[b] - r.gold.octave_band_rel_db[b],
         );
     }
+    let low_mid_body_err_db = 0.5 * (body_band_err_db[1] + body_band_err_db[2]);
+    let treble_clarity_err_db = 0.5 * (body_band_err_db[4] + body_band_err_db[5]);
     let air_noise_floor_err_db = dyn_avg(
         &|r| !r.is_stacc,
         &|r| r.synth.air_noise_floor_db - r.gold.air_noise_floor_db,
@@ -385,6 +406,8 @@ pub fn evaluate_preset(
         pallet_click_err_db,
         beat_freq_err_hz,
         dual_reed_onset_lag_err_ms,
+        low_mid_body_err_db,
+        treble_clarity_err_db,
         drift_p_to_f_err_cents,
         body_band_err_db,
         air_noise_floor_err_db,
@@ -682,7 +705,8 @@ pub fn write_scorecard_reports(scorecard: &Scorecard, out_dir: &Path) -> anyhow:
 - **Right-Hand (Cantabile) 4'/8' Octave Ratio Error (dB)**: `p: {r_p:+.1}`, `mf: {r_mf:+.1}`, `f: {r_f:+.1}`
 - **Attack Rise Time Error (ms)**: `Sustain: {rise_sus:+.1} ms`, `Staccato: {rise_stacc:+.1} ms`
 - **Mechanical Pallet Click Error**: `{click:+.1} dB`
-- **Octave Beating Frequency Error**: `{beat:+.2} Hz`, **Dual-Reed Onset Lag Error (`p`)**: `{lag:+.1} ms`
+- **Octave Beating Frequency Error**: `{beat:+.2} Hz`, **Dual-Reed Staged Onset Lag Error**: `{lag:+.1} ms`
+- **Low-Mid Body Error (250–500 Hz)**: `{low_mid:+.1} dB`, **Treble Clarity Error (2–4 kHz)**: `{treble:+.1} dB`
 - **Pressure Pitch Bend (`p -> f`) Error**: `{drift:+.2} cents`
 - **Body Formant Band Error (125Hz..4kHz, dB)**: `[{band_err}]`
 - **Inter-Harmonic Air Turbulence Floor Error**: `{noise:+.1} dB`
@@ -742,6 +766,8 @@ pub fn write_scorecard_reports(scorecard: &Scorecard, out_dir: &Path) -> anyhow:
         click = d.pallet_click_err_db,
         beat = d.beat_freq_err_hz,
         lag = d.dual_reed_onset_lag_err_ms,
+        low_mid = d.low_mid_body_err_db,
+        treble = d.treble_clarity_err_db,
         drift = d.drift_p_to_f_err_cents,
         band_err = d.body_band_err_db.iter().map(|v| format!("{v:+.1}")).collect::<Vec<_>>().join(", "),
         noise = d.air_noise_floor_err_db,

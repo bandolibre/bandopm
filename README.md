@@ -27,7 +27,7 @@ This repository is structured for AI-assisted and human collaborative developmen
 2. **Physical Modeling First**:
    - Models the self-sustained oscillation of **blown-closed free reeds** driven by unsteady Bernoulli airflow, paired octave reed activation thresholds ($8'$ and $4'$ reeds), mechanical valve noises, and wooden enclosure resonances.
    - Incorporates insights from the **Bandoneon 2.0** research group (Universidad Nacional de Quilmes) on pressure thresholds and physics-informed synthesis.
-3. **Sample-Guided Calibration & 12-Version Scientific Ablation (`v1`..`v4`)**:
-   - Includes `synth-eval`, an autonomous evaluation & coordinate-descent calibration suite scoring 12 selectable synthesis versions (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`, `v4_cabinet`, `v4_slot`, `v4_coupled`, `v4_celda`, `v4_zapatilla`, and default unified SOTA **`v4`**) across 328 golden Alfred Arnold bandoneon recordings (`66.07` Train / `64.60` Held-Out Validation / `71.91` Performance Score at `329.7 us` for 16 active voices).
+3. **Sample-Guided Calibration & 13-Version Scientific Ablation (`v1`..`v5`)**:
+   - Includes `synth-eval`, an autonomous evaluation & coordinate-descent calibration suite scoring 13 selectable synthesis versions (`v1`, `v2`, `v3_aero`, `v3_beam`, `v3_transient`, `v3`, `v4_cabinet`, `v4_slot`, `v4_coupled`, `v4_celda`, `v4_zapatilla`, `v4`, and default expressive **`v5`**) across 328 golden Alfred Arnold bandoneon recordings (`65.36` Train / `64.14` Held-Out Validation / `71.67` Performance Score at `333.0 us` for 16 active voices).
 4. **Write Once, Run Everywhere**:
    - Pure Rust DSP core (`synth-core`) with zero OS/runtime dependencies, compiling cleanly to WebAssembly (`wasm32-unknown-unknown`) for zero-install browser playability, native Linux standalone binaries, and `CLAP` plugins.

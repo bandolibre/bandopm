@@ -27,12 +27,14 @@ pub enum SynthVersion {
     /// v4_zapatilla (v4 Dir 5): v3 + Leather Pallet (Zapatilla) Release Thump & Closed-Valve Muffled Reed Ring-Down.
     V4ZapatillaValve = 10,
     /// v4 (Unified SOTA): Integrates all v4 physical modeling advances (Cabinet + Slot + Coupled ODE + Celda + Zapatilla + Fast-Math).
-    #[default]
     V4Unified = 11,
+    /// v5 (Vivo Expressive): Adds Staged 8'->4' Dual-Reed Attack, Natural Sustain Pulsation, Low-Mid Body Warmth & Treble Clarity.
+    #[default]
+    V5Vivo = 12,
 }
 
 impl SynthVersion {
-    pub const COUNT: usize = 12;
+    pub const COUNT: usize = 13;
 
     pub const ALL: [SynthVersion; Self::COUNT] = [
         SynthVersion::V1Baseline,
@@ -47,6 +49,7 @@ impl SynthVersion {
         SynthVersion::V4CeldaCavity,
         SynthVersion::V4ZapatillaValve,
         SynthVersion::V4Unified,
+        SynthVersion::V5Vivo,
     ];
 
     #[inline]
@@ -63,7 +66,8 @@ impl SynthVersion {
             8 => Self::V4CoupledOde,
             9 => Self::V4CeldaCavity,
             10 => Self::V4ZapatillaValve,
-            _ => Self::V4Unified,
+            11 => Self::V4Unified,
+            _ => Self::V5Vivo,
         }
     }
 
@@ -94,27 +98,32 @@ impl SynthVersion {
 
     #[inline]
     pub fn use_v4_cabinet(self) -> bool {
-        matches!(self, Self::V4CabinetIr | Self::V4Unified)
+        matches!(self, Self::V4CabinetIr | Self::V4Unified | Self::V5Vivo)
     }
 
     #[inline]
     pub fn use_v4_slot(self) -> bool {
-        matches!(self, Self::V4SlotTransit | Self::V4Unified)
+        matches!(self, Self::V4SlotTransit | Self::V4Unified | Self::V5Vivo)
     }
 
     #[inline]
     pub fn use_v4_coupled(self) -> bool {
-        matches!(self, Self::V4CoupledOde | Self::V4Unified)
+        matches!(self, Self::V4CoupledOde | Self::V4Unified | Self::V5Vivo)
     }
 
     #[inline]
     pub fn use_v4_celda(self) -> bool {
-        matches!(self, Self::V4CeldaCavity | Self::V4Unified)
+        matches!(self, Self::V4CeldaCavity | Self::V4Unified | Self::V5Vivo)
     }
 
     #[inline]
     pub fn use_v4_zapatilla(self) -> bool {
-        matches!(self, Self::V4ZapatillaValve | Self::V4Unified)
+        matches!(self, Self::V4ZapatillaValve | Self::V4Unified | Self::V5Vivo)
+    }
+
+    #[inline]
+    pub fn use_v5_vivo(self) -> bool {
+        matches!(self, Self::V5Vivo)
     }
 
     pub fn slug(self) -> &'static str {
@@ -131,6 +140,7 @@ impl SynthVersion {
             Self::V4CeldaCavity => "v4_celda",
             Self::V4ZapatillaValve => "v4_zapatilla",
             Self::V4Unified => "v4",
+            Self::V5Vivo => "v5",
         }
     }
 
@@ -151,7 +161,8 @@ impl SynthVersion {
             "v4_zapatilla" | "v4_zapatilla_valve" | "zapatilla" | "10" => {
                 Some(Self::V4ZapatillaValve)
             }
-            "v4" | "v4_unified" | "unified" | "sota" | "11" => Some(Self::V4Unified),
+            "v4" | "v4_unified" | "11" => Some(Self::V4Unified),
+            "v5" | "v5_vivo" | "vivo" | "sota" | "12" => Some(Self::V5Vivo),
             _ => None,
         }
     }
@@ -169,7 +180,8 @@ impl SynthVersion {
             Self::V4CoupledOde => "v4-Coupled (Dir 3): 2nd-Order Coupled Reed ODE, Chirp & Celda Feedback",
             Self::V4CeldaCavity => "v4-Celda (Dir 4): Pitch-Scaled Individual Celda Cavity Resonator (Okada 2025)",
             Self::V4ZapatillaValve => "v4-Zapatilla (Dir 5): Leather Valve Thump & Closed-Chamber Muffled Ring-Down",
-            Self::V4Unified => "v4: Unified SOTA Physical Model (Cabinet + Slot + Coupled ODE + Celda + Zapatilla)",
+            Self::V4Unified => "v4: Unified Physical Model (Cabinet + Slot + Coupled ODE + Celda + Zapatilla)",
+            Self::V5Vivo => "v5: Vivo Expressive (Staged 8'->4' Attack + Sustain Pulsation + Low-Mid Body & Treble Clarity)",
         }
     }
 }
@@ -595,6 +607,7 @@ impl BandoneonPreset {
             SynthVersion::V4CeldaCavity => Self::v4_celda_cavity(),
             SynthVersion::V4ZapatillaValve => Self::v4_zapatilla_valve(),
             SynthVersion::V4Unified => Self::v4_unified(),
+            SynthVersion::V5Vivo => Self::v5_vivo(),
         }
     }
 
@@ -967,9 +980,44 @@ impl BandoneonPreset {
         p
     }
 
+    /// Creates the v5 Vivo Expressive Physical Model preset:
+    /// 1. Staged 8' -> 4' Dual-Reed Attack (Grave blade starts first, followed by distinct 4' blade attack, then blends)
+    /// 2. Natural Sustain Pulsation (Dual-reed acoustic beating + physiological fueye bellows respiration)
+    /// 3. Rich Low-Mid Body (`180-450 Hz` chest warmth) & De-Boxed 1 kHz Midrange
+    /// 4. Crystalline Treble Clarity (`2-6 kHz` pitch-scaled jet corner & monopole presence)
+    pub fn v5_vivo() -> Self {
+        let mut p = Self::v4_unified();
+        p.name = "Alfred Arnold (AA) Physical Model v5 Vivo (Staged 8'->4' Attack + Sustain Pulsation + Low-Mid Body & Treble Clarity)".to_string();
+        p.version = SynthVersion::V5Vivo;
+        p.left_bajos.pallet_click_scale = 0.17230001;
+        p.left_bajos.staccato_chiff_gain = 1.2770724;
+        p.left_bajos.celda_cavity_hz_base = 1125.25;
+        p.right_cantabile.p_th_8ft_base = 0.02365;
+        p.right_cantabile.octave_4ft_pressure_boost = 0.62299997;
+        p.right_cantabile.reed_asymmetry_slope = -0.18175;
+        p.right_cantabile.slot_sharpness_base = 5.401248;
+        p.right_cantabile.slot_sharpness_slope = -0.9056;
+        p.right_cantabile.pressure_brightness_mod = 3.0425622;
+        p.right_cantabile.pallet_click_scale = 0.69382465;
+        p.right_cantabile.monopole_rad_boost = -0.0264;
+        p.right_cantabile.monopole_rad_slope = -0.25128368;
+        p.right_cantabile.h3_notch_inject = 0.0048352005;
+        p.right_cantabile.staccato_chiff_gain = 0.7732138;
+        p.right_cantabile.slot_pinch_adaa = 0.0022;
+        p.right_cantabile.slot_channel_notch = 0.00528;
+        p.right_cantabile.coupled_ode_momentum = 0.00264;
+        p.right_cantabile.hopf_onset_lead = -0.011879999;
+        p.right_cantabile.startup_chirp_cents = -0.1232;
+        p.right_cantabile.valve_occlusion_muffle = 0.0055;
+        p.right_cantabile.pallet_click_u_slope = 0.05689656;
+        p.right_cantabile.zapatilla_thump_gain = 0.099;
+        p.right_cabinet_modes[2].q = 1.51;
+        p
+    }
+
     /// Creates a physically grounded default preset calibrated for an Alfred Arnold (AA) bandoneon.
     pub fn default_bandoneon() -> Self {
-        Self::v4_unified()
+        Self::v5_vivo()
     }
 
     /// Resolves smooth physical parameters for a given MIDI note and hand manual at 48 kHz.

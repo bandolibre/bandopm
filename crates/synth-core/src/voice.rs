@@ -44,6 +44,8 @@ pub struct BandoneonVoice {
     beat_phase: f32,
     /// Staccato / initial attack vortex-shedding transient envelope.
     onset_transient_env: f32,
+    /// Latched step-attack scale for staged 8'->4' onset when NoteOn opens into a pressurized bellows.
+    step_attack_scale: f32,
     /// Peak smoothed pressure seen by this voice (stabilizes 4'/8' ratio during attack).
     peak_voice_pressure: f32,
     /// Elapsed audio samples since `NoteOn` (used to gate post-click vortex shedding).
@@ -84,6 +86,7 @@ impl BandoneonVoice {
             chamber_drop: 0.0,
             beat_phase: 0.0,
             onset_transient_env: 0.0,
+            step_attack_scale: 0.0,
             peak_voice_pressure: 0.0,
             voice_samples: 0,
             reed_8ft: FreeReed::new(261.63, 0.0),
@@ -154,6 +157,7 @@ impl BandoneonVoice {
         }
         self.prev_valve_aperture = self.valve_aperture;
         self.onset_transient_env = vel_norm * vel_norm;
+        self.step_attack_scale = 0.0;
         self.voice_samples = 0;
         // High-velocity staccato attacks strongly excite the lower-mass 4' octave reed
         self.peak_voice_pressure = 0.25 + 1.05 * vel_norm * vel_norm;
@@ -238,13 +242,18 @@ impl BandoneonVoice {
         }
 
         // Fast branchless parabolic sine approximation on beat_phase in [0, 1)
-        self.beat_phase += self.params.octave_beat_hz * dt;
+        let (beat_rate, beat_depth) = if version.use_v5_vivo() && self.voice_samples > 17040 {
+            (self.params.octave_beat_hz * 0.56, 0.12)
+        } else {
+            (self.params.octave_beat_hz, 0.045)
+        };
+        self.beat_phase += beat_rate * dt;
         if self.beat_phase >= 1.0 {
             self.beat_phase -= 1.0;
         }
         let bp_centered = 2.0 * self.beat_phase - 1.0; // [-1, 1)
         let beat_sin = 4.0 * bp_centered * (1.0 - bp_centered.abs());
-        let beat_mod = 1.0 + 0.045 * beat_sin;
+        let beat_mod = 1.0 + beat_depth * beat_sin;
 
         // 3. Step 8' primary reed
         let (flow_8ft, rad_8ft) = self.reed_8ft.tick(
@@ -359,18 +368,42 @@ impl BandoneonVoice {
             let (g8, g4) = if version.use_v3_tran() && elapsed_s < 0.15 {
                 let hopf_knee = self.params.reed_8ft.hopf_knee;
                 let time_entrain = hopf_knee * (1.0 - elapsed_s * 62.5).clamp(0.0, 1.0);
+                let bloom_8ft = self.reed_8ft.harmonic_bloom();
                 let amp_entrain = if version.use_v4_coupled() {
-                    let bloom_8ft = self.reed_8ft.harmonic_bloom();
                     let sustain_gate = (1.0 - (elapsed_s - 0.025).max(0.0) * 10.0).clamp(0.0, 1.0);
                     (1.0 - bloom_8ft) * sustain_gate * self.params.hopf_onset_lead
                 } else {
                     0.0
                 };
-                let w_hopf = (time_entrain + 1.8 * amp_entrain).clamp(-0.8, 1.65);
-                (
-                    (1.0 - 0.14 * w_hopf).clamp(0.40, 1.25),
-                    dyn_4ft_gain * (1.0 + 0.18 * w_hopf).max(0.25),
-                )
+                let w_hopf = (time_entrain + 1.8 * amp_entrain).clamp(-0.85, 1.65);
+                let g8_base = (1.0 - 0.14 * w_hopf).clamp(0.40, 1.25);
+                let g4_base = dyn_4ft_gain * (1.0 + 0.18 * w_hopf).max(0.25);
+                if version.use_v5_vivo() && elapsed_s < 0.032 {
+                    if self.voice_samples == 1 {
+                        let steady_p0 =
+                            bellows_pressure - 0.06 * self.velocity_norm * self.onset_transient_env;
+                        self.step_attack_scale = if steady_p0 >= 0.135 {
+                            self.onset_transient_env
+                        } else {
+                            0.0
+                        };
+                    }
+                    let env_scale = self.step_attack_scale;
+                    if elapsed_s < 0.014 {
+                        // Stage 1 (0..14ms): Grave 8' blade starts first while 4' high blade is held back
+                        // (total broadband RMS stays <= 1.0 while 8' dominates by +5.2 dB)
+                        let s1 = (1.0 - elapsed_s * 71.42857) * env_scale;
+                        (g8_base * (1.0 + 0.08 * s1), g4_base * (1.0 - 0.45 * s1))
+                    } else {
+                        // Stage 2 (14..32ms): High 4' blade fires distinct secondary attack (+9.8 dB 4'/8' shift from Stage 1),
+                        // while 8' dips so broadband RMS never overshoots 1.0, then both reeds blend at >32ms
+                        let u2 = (elapsed_s - 0.014) * 55.555557;
+                        let bell2 = 4.0 * u2 * (1.0 - u2) * env_scale;
+                        (g8_base * (1.0 - 0.22 * bell2), g4_base * (1.0 + 0.24 * bell2))
+                    }
+                } else {
+                    (g8_base, g4_base)
+                }
             } else {
                 (1.0, dyn_4ft_gain)
             };
