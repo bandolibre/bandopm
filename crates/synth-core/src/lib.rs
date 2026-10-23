@@ -8,12 +8,14 @@
 
 pub mod bellows;
 pub mod body;
+pub mod post;
 pub mod preset;
 pub mod reed;
 pub mod voice;
 
 pub use bellows::BellowsModel;
 pub use body::BodyResonator;
+pub use post::PostProcessor;
 pub use preset::{
     BandoneonPreset, BodyModeParam, Hand, KeyboardMode, ManualScalingParams, ResolvedNoteParams,
     SynthVersion,
@@ -68,6 +70,7 @@ pub struct SynthEngine {
     keyboard_mode: KeyboardMode,
     split_note: u8,
     stereo_width: f32,
+    post: PostProcessor,
 }
 
 impl SynthEngine {
@@ -96,6 +99,7 @@ impl SynthEngine {
             keyboard_mode: KeyboardMode::DualChannelBandolibre,
             split_note: 60,
             stereo_width: 0.84,
+            post: PostProcessor::new(sr),
         }
     }
 
@@ -164,6 +168,35 @@ impl SynthEngine {
         self.stereo_width = width.clamp(0.0, 1.0);
     }
 
+    #[inline]
+    pub fn post_enabled(&self) -> bool {
+        self.post.enabled
+    }
+
+    #[inline]
+    pub fn set_post_enabled(&mut self, enabled: bool) {
+        self.post.enabled = enabled;
+    }
+
+    #[inline]
+    pub fn set_post_params(
+        &mut self,
+        comp_amount: f32,
+        reverb_mix: f32,
+        reverb_size: f32,
+        spatial_amount: f32,
+    ) {
+        self.post.comp_amount = comp_amount.clamp(0.0, 1.0);
+        self.post.reverb_mix = reverb_mix.clamp(0.0, 1.0);
+        self.post.reverb_size = reverb_size.clamp(0.0, 1.0);
+        self.post.spatial_amount = spatial_amount.clamp(0.0, 1.0);
+    }
+
+    #[inline]
+    pub fn post_gain_reduction_db(&self) -> f32 {
+        self.post.last_gain_reduction_db()
+    }
+
     pub fn reset(&mut self) {
         self.bellows = BellowsModel::new(self.sample_rate);
         self.bellows.set_smoothing(
@@ -176,6 +209,7 @@ impl SynthEngine {
             v.key_down = false;
         }
         self.body.reset();
+        self.post.reset();
         self.last_total_flow = 0.0;
     }
 
@@ -281,6 +315,8 @@ impl SynthEngine {
                     v.key_down = false;
                 }
                 self.bellows.notify_all_notes_off();
+                self.body.reset();
+                self.post.reset();
             }
         }
     }
@@ -412,8 +448,9 @@ impl SynthEngine {
             let (body_l, body_r) = self.step_manuals_and_body(dt, inv_sr_38, inv_sr_42);
             let stereo_l = (pan_main * body_l + pan_cross * body_r) * gain;
             let stereo_r = (pan_cross * body_l + pan_main * body_r) * gain;
-            out_left[i] = Self::soft_limit(stereo_l);
-            out_right[i] = Self::soft_limit(stereo_r);
+            let (post_l, post_r) = self.post.tick_stereo(stereo_l, stereo_r);
+            out_left[i] = Self::soft_limit(post_l);
+            out_right[i] = Self::soft_limit(post_r);
         }
     }
 
@@ -808,5 +845,67 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_post_processor_spatial_compressor_reverb_stability() {
+        let mut synth = SynthEngine::new(
+            48000.0,
+            BandoneonPreset::for_version(SynthVersion::V4Unified),
+        );
+        synth.set_post_enabled(true);
+        synth.set_post_params(0.65, 0.35, 0.60, 0.70);
+        synth.handle_midi_event(MidiEvent::ControlChange11(120));
+        synth.handle_midi_event(MidiEvent::NoteOn {
+            note: 48,
+            velocity: 118,
+            hand: Hand::LeftBajos,
+        });
+        synth.handle_midi_event(MidiEvent::NoteOn {
+            note: 69,
+            velocity: 118,
+            hand: Hand::RightCantabile,
+        });
+
+        let mut left = [0.0f32; 128];
+        let mut right = [0.0f32; 128];
+        let mut max_gr_db = 0.0f32;
+        for _ in 0..80 {
+            synth.render(&mut left, &mut right);
+            assert!(left.iter().all(|x| x.is_finite() && x.abs() <= 1.0));
+            assert!(right.iter().all(|x| x.is_finite() && x.abs() <= 1.0));
+            max_gr_db = max_gr_db.max(synth.post_gain_reduction_db());
+        }
+        assert!(
+            max_gr_db > 0.1,
+            "Expected positive compressor gain reduction under forte chord, got {max_gr_db}"
+        );
+
+        // Release notes and verify reverb tail exists then decays cleanly
+        synth.handle_midi_event(MidiEvent::NoteOff {
+            note: 48,
+            release_velocity: 64,
+            hand: Hand::LeftBajos,
+        });
+        synth.handle_midi_event(MidiEvent::NoteOff {
+            note: 69,
+            release_velocity: 64,
+            hand: Hand::RightCantabile,
+        });
+        synth.handle_midi_event(MidiEvent::ControlChange11(0));
+        for _ in 0..40 {
+            synth.render(&mut left, &mut right);
+        }
+        let reverb_tail_rms = (left.iter().map(|x| x * x).sum::<f32>() / 128.0).sqrt();
+        assert!(
+            reverb_tail_rms > 1e-4,
+            "Expected audible salon reverb tail shortly after release, got {reverb_tail_rms}"
+        );
+
+        // AllNotesOff clears voices and reverb tank
+        synth.handle_midi_event(MidiEvent::AllNotesOff);
+        synth.render(&mut left, &mut right);
+        let cleared_rms = (left.iter().map(|x| x * x).sum::<f32>() / 128.0).sqrt();
+        assert!(cleared_rms < 1e-5, "Expected silence after AllNotesOff, got {cleared_rms}");
     }
 }

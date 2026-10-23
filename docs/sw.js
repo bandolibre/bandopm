@@ -1,4 +1,4 @@
-const CACHE_NAME = "bandopm-pwa-v4-1";
+const CACHE_NAME = "bandopm-pwa-v4-2";
 const PRECACHE_ASSETS = [
   "./",
   "./index.html",
@@ -49,10 +49,10 @@ self.addEventListener("fetch", (event) => {
         return networkResp;
       })
       .catch(() =>
-        caches.match(event.request).then((cachedResp) => {
+        caches.match(event.request, { ignoreSearch: true }).then((cachedResp) => {
           if (cachedResp) return cachedResp;
           if (event.request.mode === "navigate") {
-            return caches.match("./index.html");
+            return caches.match("./index.html", { ignoreSearch: true });
           }
           return Response.error();
         })

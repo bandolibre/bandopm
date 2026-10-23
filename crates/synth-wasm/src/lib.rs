@@ -14,8 +14,10 @@ pub extern "C" fn synth_create(sample_rate: f32) -> *mut WasmSynthContext {
     let presets: [BandoneonPreset; SynthVersion::COUNT] =
         core::array::from_fn(|i| BandoneonPreset::for_version(SynthVersion::from_u8(i as u8)));
     let preset = presets[SynthVersion::V4Unified as usize].clone();
+    let mut engine = SynthEngine::new(sample_rate, preset);
+    engine.set_post_enabled(true);
     let ctx = Box::new(WasmSynthContext {
-        engine: SynthEngine::new(sample_rate, preset),
+        engine,
         presets,
         left_buf: [0.0; 128],
         right_buf: [0.0; 128],
@@ -114,6 +116,48 @@ pub unsafe extern "C" fn synth_set_split_note(ctx: *mut WasmSynthContext, split_
 pub unsafe extern "C" fn synth_set_stereo_width(ctx: *mut WasmSynthContext, width: f32) {
     if let Some(c) = ctx.as_mut() {
         c.engine.handle_midi_event(MidiEvent::SetStereoWidth(width));
+    }
+}
+
+/// Enables or bypasses the studio post-processing chain (Spatializer + Compressor + Salon Reverb).
+///
+/// # Safety
+/// `ctx` must be a valid pointer returned by `synth_create`.
+#[no_mangle]
+pub unsafe extern "C" fn synth_set_post_enabled(ctx: *mut WasmSynthContext, enabled: bool) {
+    if let Some(c) = ctx.as_mut() {
+        c.engine.set_post_enabled(enabled);
+    }
+}
+
+/// Updates the studio post-processing parameters in `[0.0, 1.0]`.
+///
+/// # Safety
+/// `ctx` must be a valid pointer returned by `synth_create`.
+#[no_mangle]
+pub unsafe extern "C" fn synth_set_post_params(
+    ctx: *mut WasmSynthContext,
+    comp_amount: f32,
+    reverb_mix: f32,
+    reverb_size: f32,
+    spatial_amount: f32,
+) {
+    if let Some(c) = ctx.as_mut() {
+        c.engine
+            .set_post_params(comp_amount, reverb_mix, reverb_size, spatial_amount);
+    }
+}
+
+/// Returns the instantaneous bus compressor gain reduction in dB (`>= 0.0`).
+///
+/// # Safety
+/// `ctx` must be a valid pointer returned by `synth_create`.
+#[no_mangle]
+pub unsafe extern "C" fn synth_get_post_gr_db(ctx: *const WasmSynthContext) -> f32 {
+    if let Some(c) = ctx.as_ref() {
+        c.engine.post_gain_reduction_db()
+    } else {
+        0.0
     }
 }
 

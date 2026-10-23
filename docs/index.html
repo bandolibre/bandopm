@@ -686,6 +686,59 @@
             <span>Latch / Hold Notes (click multiple keys to build a chord, then switch versions or drag up/down)</span>
           </label>
         </div>
+
+        <!-- Studio Post-Processing Chain (Spatialization + Optical Bus Compression + Salon/Hall Reverb) -->
+        <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--border);">
+          <div style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <label style="display:inline-flex; align-items:center; gap:7px; cursor:pointer; font-weight:700; font-size:0.86rem; color:var(--accent);">
+                <input id="postEnableToggle" type="checkbox" checked style="accent-color:#1f9d55; width:16px; height:16px; cursor:pointer;" />
+                <span>Studio Post-Processing (Spatial + Comp + Reverb)</span>
+              </label>
+              <span id="postStatusBadge" class="ch-badge ch1" style="font-size:0.70rem;">ON • SALON MILONGA</span>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">
+              <button type="button" class="post-preset-btn" data-preset="milonga" style="padding:4px 9px; font-size:0.74rem; border-color:#2f7d78;">Salon Milonga</button>
+              <button type="button" class="post-preset-btn" data-preset="concert" style="padding:4px 9px; font-size:0.74rem;">Teatro Colón (Hall)</button>
+              <button type="button" class="post-preset-btn" data-preset="studio" style="padding:4px 9px; font-size:0.74rem;">Studio Close-Mic</button>
+              <button type="button" class="post-preset-btn" data-preset="binaural" style="padding:4px 9px; font-size:0.74rem;">Binaural Headphones</button>
+            </div>
+          </div>
+
+          <div id="postControlsGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px 14px;">
+            <div class="meter-group" style="margin-bottom:0;">
+              <div class="meter-label">
+                <span title="Binaural 0.44ms Haas head-shadow crossfeed + sub-155Hz bass anchor + Mid/Side air expansion">3D Spatial &amp; Binaural Crossfeed</span>
+                <strong id="postSpatialReadout">55%</strong>
+              </div>
+              <input id="postSpatialSlider" type="range" min="0" max="100" value="55" style="width:100%; accent-color:#38bdf8; cursor:pointer;" />
+            </div>
+
+            <div class="meter-group" style="margin-bottom:0;">
+              <div class="meter-label">
+                <span title="Optical stereo bus compressor (16ms attack preserves marcato pluck, 165ms release + warm harmonic glue)">Optical Compression &amp; Warmth</span>
+                <span><strong id="postCompReadout">45%</strong> <span id="postGrBadge" style="font-family:var(--mono); font-size:0.72rem; color:#fbbf24; margin-left:6px;">GR: 0.0 dB</span></span>
+              </div>
+              <input id="postCompSlider" type="range" min="0" max="100" value="45" style="width:100%; accent-color:#f59e0b; cursor:pointer;" />
+            </div>
+
+            <div class="meter-group" style="margin-bottom:0;">
+              <div class="meter-label">
+                <span title="Early wooden salon reflections + damped stereo FDN hall reverberation">Salon / Hall Reverb Mix</span>
+                <strong id="postRevMixReadout">26%</strong>
+              </div>
+              <input id="postRevMixSlider" type="range" min="0" max="100" value="26" style="width:100%; accent-color:#a855f7; cursor:pointer;" />
+            </div>
+
+            <div class="meter-group" style="margin-bottom:0;">
+              <div class="meter-label">
+                <span title="Pre-delay (12–26ms) and acoustic room decay time">Acoustic Room Size &amp; Decay</span>
+                <strong id="postRevSizeReadout">50%</strong>
+              </div>
+              <input id="postRevSizeSlider" type="range" min="0" max="100" value="50" style="width:100%; accent-color:#2dd4bf; cursor:pointer;" />
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="card">

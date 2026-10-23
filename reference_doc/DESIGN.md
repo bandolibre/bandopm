@@ -216,6 +216,17 @@ To guarantee real-time audio safety and $< 350\ \mu\text{s}$ 16-voice CPU perfor
 
 ---
 
+### 4.6 Studio Acoustic Post-Processing Chain (`crates/synth-core/src/post.rs`)
+To place the radiated dual-manual bandoneon signal inside a realistic acoustic performance space without any external DAW plugins, `synth-core` includes a real-time safe, zero-allocation stereo post-processing chain (`PostProcessor` in [`crates/synth-core/src/post.rs`](file:///usr/local/google/home/plabatut/projects/synth/crates/synth-core/src/post.rs)) with click-free one-pole parameter smoothing and a master `ON / OFF` bypass:
+1. **3D Binaural / Haas Spatializer & Frequency-Dependent Crossfeed (`spatial_amount` $\in [0, 1]$)**:
+   - Separates sub-bass ($< 155\text{ Hz}$) to anchor the deep *Bajos* chest resonance near the center while applying an interaural time delay ($\sim 0.44\text{ ms}$, corresponding to $\sim 15\text{ cm}$ path difference) filtered by a $1.75\text{ kHz}$ head-shadow low-pass crossfeed between Left (*Bajos*) and Right (*Cantabile*) channels, plus upper-register Mid/Side stereo air expansion.
+2. **Program-Dependent Optical Bus Compressor & Warm Glue (`comp_amount` $\in [0, 1]$)**:
+   - Stereo-linked envelope detector with a transient-preserving $16\text{ ms}$ attack (allowing the initial *zapatilla* pallet click and *marcato* reed pluck to pass uncompressed) and $165\text{ ms}$ release, soft-knee gain reduction, automatic makeup gain, subtle even/odd harmonic saturation, and real-time Gain Reduction (`GR dB`) telemetry.
+3. **Tango Salon / Concert Hall Stereo Algorithmic Reverberator (`reverb_mix`, `reverb_size` $\in [0, 1]$)**:
+   - Combines input conditioning ($145\text{ Hz}$ high-pass + $3.9\text{ kHz}$ low-pass), adjustable pre-delay ($12\text{–}26\text{ ms}$), a 4-tap stereo wooden salon early-reflection cluster, and a stereo-crossfed $4 \times 2$ mutually prime low-pass-damped comb network followed by $2 \times 2$ series Schroeder all-pass diffusers.
+
+---
+
 ## 5. Autonomous Evaluation & Sample Calibration (`synth-eval`)
 
 The repository uses a **Single-Loop Autonomous AI Evaluation Architecture** (fully specified in [`reference_doc/EVALUATION.md`](file:///usr/local/google/home/plabatut/projects/synth/reference_doc/EVALUATION.md)) where `synth-eval` compares `synth-core` against golden bandoneon recordings (`p`, `mf`, `ff` steady dynamics and `staccato` / `marcato` attacks):

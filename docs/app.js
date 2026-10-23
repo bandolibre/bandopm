@@ -488,6 +488,118 @@
   const versionDescBox = document.getElementById("versionDescBox");
   const versionTableBody = document.getElementById("versionTableBody");
 
+  // Studio Post-Processing Controls (Spatializer + Optical Bus Compressor + Salon/Hall Reverb)
+  const postEnableToggle = document.getElementById("postEnableToggle");
+  const postStatusBadge = document.getElementById("postStatusBadge");
+  const postControlsGrid = document.getElementById("postControlsGrid");
+  const postSpatialSlider = document.getElementById("postSpatialSlider");
+  const postSpatialReadout = document.getElementById("postSpatialReadout");
+  const postCompSlider = document.getElementById("postCompSlider");
+  const postCompReadout = document.getElementById("postCompReadout");
+  const postGrBadge = document.getElementById("postGrBadge");
+  const postRevMixSlider = document.getElementById("postRevMixSlider");
+  const postRevMixReadout = document.getElementById("postRevMixReadout");
+  const postRevSizeSlider = document.getElementById("postRevSizeSlider");
+  const postRevSizeReadout = document.getElementById("postRevSizeReadout");
+
+  const POST_PRESETS = {
+    milonga: { label: "SALON MILONGA", spatial: 55, comp: 45, revMix: 26, revSize: 50 },
+    concert: { label: "TEATRO COLÓN (HALL)", spatial: 72, comp: 38, revMix: 40, revSize: 78 },
+    studio: { label: "STUDIO CLOSE-MIC", spatial: 35, comp: 65, revMix: 14, revSize: 32 },
+    binaural: { label: "BINAURAL HEADPHONES", spatial: 85, comp: 42, revMix: 22, revSize: 44 },
+  };
+
+  let postEnabled = true;
+  let activePostPresetLabel = "SALON MILONGA";
+  let postParams = {
+    compAmount: 0.45,
+    reverbMix: 0.26,
+    reverbSize: 0.50,
+    spatialAmount: 0.55,
+  };
+
+  function syncPostProcessingToWorklet() {
+    if (postSpatialReadout) postSpatialReadout.textContent = `${Math.round(postParams.spatialAmount * 100)}%`;
+    if (postCompReadout) postCompReadout.textContent = `${Math.round(postParams.compAmount * 100)}%`;
+    if (postRevMixReadout) postRevMixReadout.textContent = `${Math.round(postParams.reverbMix * 100)}%`;
+    if (postRevSizeReadout) postRevSizeReadout.textContent = `${Math.round(postParams.reverbSize * 100)}%`;
+    if (postControlsGrid) {
+      postControlsGrid.style.opacity = postEnabled ? "1.0" : "0.45";
+    }
+    if (postStatusBadge) {
+      if (postEnabled) {
+        postStatusBadge.textContent = `ON • ${activePostPresetLabel}`;
+        postStatusBadge.className = "ch-badge ch1";
+      } else {
+        postStatusBadge.textContent = "BYPASSED (DRY)";
+        postStatusBadge.className = "ch-badge";
+      }
+    }
+    if (!postEnabled && postGrBadge) {
+      postGrBadge.textContent = "GR: 0.0 dB";
+    }
+    if (workletNode) {
+      workletNode.port.postMessage({ type: "set-post-enabled", enabled: postEnabled });
+      workletNode.port.postMessage({
+        type: "set-post-params",
+        compAmount: postParams.compAmount,
+        reverbMix: postParams.reverbMix,
+        reverbSize: postParams.reverbSize,
+        spatialAmount: postParams.spatialAmount,
+      });
+    }
+  }
+
+  if (postEnableToggle) {
+    postEnableToggle.addEventListener("change", (e) => {
+      ensureAudioStarted();
+      postEnabled = !!e.target.checked;
+      syncPostProcessingToWorklet();
+      logMidi(`Studio Post-Processing -> ${postEnabled ? "ENABLED (" + activePostPresetLabel + ")" : "BYPASSED (Dry)"}`);
+    });
+  }
+
+  function handleCustomPostSlider() {
+    ensureAudioStarted();
+    activePostPresetLabel = "CUSTOM";
+    if (postSpatialSlider) postParams.spatialAmount = Number(postSpatialSlider.value) / 100;
+    if (postCompSlider) postParams.compAmount = Number(postCompSlider.value) / 100;
+    if (postRevMixSlider) postParams.reverbMix = Number(postRevMixSlider.value) / 100;
+    if (postRevSizeSlider) postParams.reverbSize = Number(postRevSizeSlider.value) / 100;
+    syncPostProcessingToWorklet();
+  }
+
+  [postSpatialSlider, postCompSlider, postRevMixSlider, postRevSizeSlider].forEach((sl) => {
+    if (sl) sl.addEventListener("input", handleCustomPostSlider);
+  });
+
+  document.querySelectorAll(".post-preset-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      ensureAudioStarted();
+      const key = btn.dataset.preset;
+      const p = POST_PRESETS[key];
+      if (!p) return;
+      postEnabled = true;
+      if (postEnableToggle) postEnableToggle.checked = true;
+      activePostPresetLabel = p.label;
+      postParams.spatialAmount = p.spatial / 100;
+      postParams.compAmount = p.comp / 100;
+      postParams.reverbMix = p.revMix / 100;
+      postParams.reverbSize = p.revSize / 100;
+      if (postSpatialSlider) postSpatialSlider.value = String(p.spatial);
+      if (postCompSlider) postCompSlider.value = String(p.comp);
+      if (postRevMixSlider) postRevMixSlider.value = String(p.revMix);
+      if (postRevSizeSlider) postRevSizeSlider.value = String(p.revSize);
+      document.querySelectorAll(".post-preset-btn").forEach((b) => {
+        b.style.borderColor = b === btn ? "#2f7d78" : "var(--border)";
+      });
+      syncPostProcessingToWorklet();
+      logMidi(
+        `Post-FX Preset -> ${p.label} (Spatial ${p.spatial}%, Comp ${p.comp}%, Reverb ${p.revMix}%, Room ${p.revSize}%)`
+      );
+    });
+  });
+
   function renderVersionUI() {
     if (!versionSelect || !versionPills || !versionDescBox || !versionTableBody) return;
 
@@ -630,6 +742,11 @@
           } else if (e.data.type === "version-changed") {
             const cur = SYNTH_VERSIONS.find((x) => x.id === e.data.activeVersionId) || SYNTH_VERSIONS[11];
             audioStatusBadge.textContent = `Audio: ${audioCtx.sampleRate} Hz WASM [${cur.slug.toUpperCase()}] (${audioCtx.state})`;
+          } else if (e.data.type === "post-telemetry") {
+            if (postGrBadge) {
+              const gr = postEnabled ? Math.max(0, Number(e.data.grDb) || 0) : 0;
+              postGrBadge.textContent = gr > 0.05 ? `GR: -${gr.toFixed(1)} dB` : "GR: 0.0 dB";
+            }
           } else if (e.data.type === "error") {
             audioStatusBadge.textContent = `WASM Error`;
             logMidi(`AudioWorklet Error: ${e.data.message}`);
@@ -645,6 +762,8 @@
           keyboardMode: isPianistSplit ? 1 : 0,
           splitNote: currentSplitNote,
           stereoWidth: currentStereoWidth,
+          postEnabled,
+          postParams,
         });
 
         workletNode = node;
