@@ -213,7 +213,24 @@
     if (select.value !== previousValue) select.value = "";
   }
 
+  // Configuration tool: its "gear" button is shown while a Bandolibre is the
+  // connected device, and opens the tool in a new window.
+  const CONFIG_TOOL_URL = "https://bandolibre.github.io/bandolibre/tools/midi.html";
+  const configureBtn = document.getElementById("btn-configure");
+  if (configureBtn) {
+    configureBtn.addEventListener("click", () => {
+      window.open(CONFIG_TOOL_URL, "bandolibre-config", "popup,width=1100,height=800,noopener");
+    });
+  }
+
+  function updateConfigureButton() {
+    if (!configureBtn) return;
+    const device = activeKey && collectDevices().find((d) => d.key === activeKey);
+    configureBtn.style.display = isBandolibre(device) ? "" : "none";
+  }
+
   function updateStatus() {
+    updateConfigureButton();
     if (!midiAccess) return;
     if (activeName) {
       setStatus("ok", "MIDI");
