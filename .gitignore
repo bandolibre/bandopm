@@ -2,9 +2,6 @@
 /target/
 /docs/version_comparison.json
 
-# Golden sample audio dataset (local only, not tracked in Git)
-/assets/samples/golden/
-
 # Local backup exclusion marker
 /.nobackup
 
