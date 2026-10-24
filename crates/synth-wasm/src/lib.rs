@@ -148,6 +148,17 @@ pub unsafe extern "C" fn synth_set_post_params(
     }
 }
 
+/// Sets the pitch of A4 in Hz (equal temperament, e.g. `440.0` or `442.0`) for notes started afterwards.
+///
+/// # Safety
+/// `ctx` must be a valid pointer returned by `synth_create`.
+#[no_mangle]
+pub unsafe extern "C" fn synth_set_reference_hz(ctx: *mut WasmSynthContext, hz: f32) {
+    if let Some(c) = ctx.as_mut() {
+        c.engine.set_reference_hz(hz);
+    }
+}
+
 /// Sets the reverb pre-delay amount in `[0.0, 1.0]` (`0.5 ms .. 38 ms`).
 ///
 /// # Safety

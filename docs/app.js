@@ -770,6 +770,39 @@
   renderVersionSelect();
 
   // =========================================================================
+  // 4b. Temperament (equal temperament, A4 reference)
+  // =========================================================================
+  const temperamentSelect = document.getElementById("temperamentSelect");
+  let referenceHz = 440;
+  try {
+    const saved = Number(localStorage.getItem("bandopm-reference-hz"));
+    if (temperamentSelect && [...temperamentSelect.options].some((o) => Number(o.value) === saved)) {
+      referenceHz = saved;
+    }
+  } catch (e) {}
+  if (temperamentSelect) temperamentSelect.value = String(referenceHz);
+
+  function applyReferenceHz() {
+    if (workletNode) {
+      workletNode.port.postMessage({ type: "set-reference-hz", referenceHz });
+    }
+    if (mirrorWasm && mirrorCtx && mirrorWasm.synth_set_reference_hz) {
+      mirrorWasm.synth_set_reference_hz(mirrorCtx, referenceHz);
+    }
+  }
+
+  if (temperamentSelect) {
+    temperamentSelect.addEventListener("change", (e) => {
+      ensureAudioStarted();
+      referenceHz = Number(e.target.value);
+      try {
+        localStorage.setItem("bandopm-reference-hz", String(referenceHz));
+      } catch (err) {}
+      applyReferenceHz();
+    });
+  }
+
+  // =========================================================================
   // 5. WebAudio Initialization & Bellows CC#11 Updates
   // =========================================================================
   async function ensureAudioStarted() {
@@ -827,6 +860,9 @@
           if (mirrorWasm.synth_set_version) {
             mirrorWasm.synth_set_version(mirrorCtx, activeVersionId | 0);
           }
+          if (mirrorWasm.synth_set_reference_hz) {
+            mirrorWasm.synth_set_reference_hz(mirrorCtx, referenceHz);
+          }
           if (mirrorWasm.synth_set_keyboard_mode) {
             mirrorWasm.synth_set_keyboard_mode(mirrorCtx, isPianistSplit ? 1 : 0);
           }
@@ -860,6 +896,7 @@
           versionId: activeVersionId,
           keyboardMode: isPianistSplit ? 1 : 0,
           splitNote: currentSplitNote,
+          referenceHz,
           stereoWidth: currentStereoWidth,
           postEnabled,
           postParams,

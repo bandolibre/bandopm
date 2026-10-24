@@ -128,6 +128,7 @@ impl BandoneonVoice {
         sample_rate: f32,
         preset: &BandoneonPreset,
         age: u64,
+        reference_hz: f32,
     ) {
         let same_button = self.active && self.midi_note == midi_note && self.hand == hand;
         self.active = true;
@@ -140,7 +141,7 @@ impl BandoneonVoice {
         let sr = sample_rate.max(8000.0);
         self.params = preset.resolve_note_at_rate(midi_note, hand, sr);
 
-        let f0 = 440.0 * 2.0f32.powf((midi_note as f32 - 69.0) / 12.0);
+        let f0 = reference_hz * 2.0f32.powf((midi_note as f32 - 69.0) / 12.0);
         // Alfred Arnold dry (*a seco*) tuning with intra-celda 1:2 entrainment:
         // Small carrier detuning (0.14 Hz) keeps all harmonics H2..H16 aligned within the harmonic bins,
         // while aeroacoustic chamber precession (`beat_phase`) produces the characteristic beating modulation.

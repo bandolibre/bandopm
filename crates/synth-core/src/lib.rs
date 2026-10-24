@@ -75,6 +75,8 @@ pub struct SynthEngine {
     cc11_msb: u8,
     keyboard_mode: KeyboardMode,
     split_note: u8,
+    /// Frequency of A4 in Hz for the equal-temperament scale (applies to notes started afterwards).
+    reference_hz: f32,
     stereo_width: f32,
     post: PostProcessor,
 }
@@ -109,6 +111,7 @@ impl SynthEngine {
             cc11_msb: 0,
             keyboard_mode: KeyboardMode::DualChannelBandolibre,
             split_note: 60,
+            reference_hz: 440.0,
             stereo_width: 0.84,
             post: PostProcessor::new(sr),
         }
@@ -162,6 +165,17 @@ impl SynthEngine {
     #[inline]
     pub fn set_keyboard_mode(&mut self, mode: KeyboardMode) {
         self.keyboard_mode = mode;
+    }
+
+    /// Sets the pitch of A4 in Hz (clamped to `415..=466`, i.e. about a semitone either side of 440).
+    #[inline]
+    pub fn set_reference_hz(&mut self, hz: f32) {
+        self.reference_hz = hz.clamp(415.0, 466.0);
+    }
+
+    #[inline]
+    pub fn reference_hz(&self) -> f32 {
+        self.reference_hz
     }
 
     #[inline]
@@ -296,6 +310,7 @@ impl SynthEngine {
                     self.sample_rate,
                     &self.preset,
                     self.event_counter,
+                    self.reference_hz,
                 );
             }
             MidiEvent::NoteOff {

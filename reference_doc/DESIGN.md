@@ -70,6 +70,8 @@ flowchart TD
 
 ## 3. Bandolibre MIDI & Expression Architecture
 
+**Temperament**: note frequencies are 12-tone equal temperament, `f0 = reference_hz * 2^((note - 69) / 12)`. `reference_hz` (A4) is set with `Engine::set_reference_hz` / `synth_set_reference_hz` (clamped to 415..466 Hz, default 440) and read when a note starts, so sounding notes keep their pitch. The web app's "Tuning" dropdown offers 440 Hz and 442 Hz (traditional bandoneon tuning).
+
 ### 3.1 Input Signals from Bandolibre & Dual-Manual Channel Routing (`KeyboardMode`)
 The Bandolibre firmware transmits:
 1. **Two Keyboards on Separate MIDI Channels with a 12-Semitone Overlapping Octave (`C4..B4`, `MIDI 60..71`)**:

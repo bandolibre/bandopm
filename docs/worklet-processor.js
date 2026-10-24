@@ -34,6 +34,9 @@ class BandolibreProcessor extends AudioWorkletProcessor {
           if (msg.stereoWidth !== undefined && this.wasmExports.synth_set_stereo_width) {
             this.wasmExports.synth_set_stereo_width(this.ctxPtr, +msg.stereoWidth);
           }
+          if (msg.referenceHz !== undefined && this.wasmExports.synth_set_reference_hz) {
+            this.wasmExports.synth_set_reference_hz(this.ctxPtr, +msg.referenceHz);
+          }
           if (msg.postEnabled !== undefined && this.wasmExports.synth_set_post_enabled) {
             this.wasmExports.synth_set_post_enabled(this.ctxPtr, msg.postEnabled ? 1 : 0);
           }
@@ -77,6 +80,10 @@ class BandolibreProcessor extends AudioWorkletProcessor {
       } else if (msg.type === 'set-split-note') {
         if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_split_note) {
           this.wasmExports.synth_set_split_note(this.ctxPtr, msg.splitNote | 0);
+        }
+      } else if (msg.type === 'set-reference-hz') {
+        if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_reference_hz) {
+          this.wasmExports.synth_set_reference_hz(this.ctxPtr, +msg.referenceHz);
         }
       } else if (msg.type === 'set-stereo-width') {
         if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_stereo_width) {
