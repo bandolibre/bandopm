@@ -417,7 +417,15 @@
       align-items: center;
       cursor: ns-resize;
       user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
       padding: 2px 0;
+    }
+
+    /* Keep the vertical-drag cursor wherever the pointer is while turning a knob */
+    body.knob-dragging,
+    body.knob-dragging * {
+      cursor: ns-resize !important;
     }
 
     .knob-label {

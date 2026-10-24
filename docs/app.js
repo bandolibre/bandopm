@@ -579,71 +579,99 @@
     }
   }
 
+  const KNOB_START_DEG = -135;
+  const KNOB_END_DEG = 135;
+  const KNOB_DRAG_PX_FULL_RANGE = 200; // vertical drag distance for 0 -> 100%
+  const knobViews = new Map(); // knob id -> { svg, val }
+
+  // Updates the knob graphics in place (the DOM nodes must stay alive while
+  // dragging, otherwise the pointer capture is lost).
+  function drawKnob(k) {
+    const view = knobViews.get(k.id);
+    if (!view) return;
+    const curDeg = KNOB_START_DEG + (k.val / 100) * (KNOB_END_DEG - KNOB_START_DEG);
+    const valArc = k.val > 0 ? describeArc(26, 26, 20, KNOB_START_DEG, curDeg) : "";
+    const tip = polarToCartesian(26, 26, 13, curDeg);
+    const center = polarToCartesian(26, 26, 5, curDeg);
+    view.svg.innerHTML = `
+      <path d="${describeArc(26, 26, 20, KNOB_START_DEG, KNOB_END_DEG)}" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="3" stroke-linecap="round" />
+      ${valArc ? `<path d="${valArc}" fill="none" stroke="${k.color}" stroke-width="3" stroke-linecap="round" />` : ""}
+      <circle cx="26" cy="26" r="15" fill="#1e2025" stroke="rgba(255,255,255,0.12)" stroke-width="1" />
+      <line x1="${center.x}" y1="${center.y}" x2="${tip.x}" y2="${tip.y}" stroke="#f4f4f6" stroke-width="2" stroke-linecap="round" />
+    `;
+    view.val.textContent = `${k.val}%`;
+  }
+
+  function refreshKnobs() {
+    for (const k of KNOB_SPECS) drawKnob(k);
+  }
+
+  function setKnobValue(k, v) {
+    const next = Math.max(0, Math.min(100, Math.round(v)));
+    if (next === k.val) return;
+    k.val = next;
+    if (k.id !== "sep" && postPresetSelect) {
+      postPresetSelect.value = "custom";
+    }
+    drawKnob(k);
+    syncKnobsToWorklet();
+  }
+
   function renderKnobs() {
     if (!knobsRow) return;
     knobsRow.innerHTML = "";
-    const startDeg = -135;
-    const endDeg = 135;
-    const bgArc = describeArc(26, 26, 20, startDeg, endDeg);
+    knobViews.clear();
 
     for (const k of KNOB_SPECS) {
-      const curDeg = startDeg + (k.val / 100) * (endDeg - startDeg);
-      const valArc = k.val > 0 ? describeArc(26, 26, 20, startDeg, curDeg) : "";
-      const tip = polarToCartesian(26, 26, 13, curDeg);
-      const center = polarToCartesian(26, 26, 5, curDeg);
-
       const item = document.createElement("div");
       item.className = "knob-item";
-      item.title = "Drag up/down to adjust • Double-click to reset";
+      item.title = "Click and drag up/down to adjust • Double-click to reset";
       item.innerHTML = `
-        <svg width="52" height="52" viewBox="0 0 52 52">
-          <path d="${bgArc}" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="3" stroke-linecap="round" />
-          ${valArc ? `<path d="${valArc}" fill="none" stroke="${k.color}" stroke-width="3" stroke-linecap="round" />` : ""}
-          <circle cx="26" cy="26" r="15" fill="#1e2025" stroke="rgba(255,255,255,0.12)" stroke-width="1" />
-          <line x1="${center.x}" y1="${center.y}" x2="${tip.x}" y2="${tip.y}" stroke="#f4f4f6" stroke-width="2" stroke-linecap="round" />
-        </svg>
+        <svg width="52" height="52" viewBox="0 0 52 52"></svg>
         <span class="knob-label">${k.label}</span>
-        <span class="knob-val">${k.val}%</span>
+        <span class="knob-val"></span>
       `;
+      knobViews.set(k.id, {
+        svg: item.querySelector("svg"),
+        val: item.querySelector(".knob-val"),
+      });
+      drawKnob(k);
 
-      let startY = 0;
-      let startVal = k.val;
+      // Pointer capture routes all moves to the knob wherever the pointer
+      // goes (outside the knob, the panel or even the window), so the drag
+      // zone is unbounded.
+      let drag = null;
       item.addEventListener("pointerdown", (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
         e.preventDefault();
         ensureAudioStarted();
-        startY = e.clientY;
-        startVal = k.val;
+        drag = { id: e.pointerId, startY: e.clientY, startVal: k.val };
         item.setPointerCapture(e.pointerId);
-
-        const onMove = (ev) => {
-          const dy = startY - ev.clientY;
-          const nextVal = Math.max(0, Math.min(100, Math.round(startVal + dy * 0.65)));
-          if (nextVal !== k.val) {
-            k.val = nextVal;
-            if (k.id !== "sep" && postPresetSelect) {
-              postPresetSelect.value = "custom";
-            }
-            renderKnobs();
-            syncKnobsToWorklet();
-          }
-        };
-
-        const onUp = () => {
-          item.removeEventListener("pointermove", onMove);
-          item.removeEventListener("pointerup", onUp);
-          item.removeEventListener("pointercancel", onUp);
-        };
-
-        item.addEventListener("pointermove", onMove);
-        item.addEventListener("pointerup", onUp);
-        item.addEventListener("pointercancel", onUp);
+        item.classList.add("dragging");
+        document.body.classList.add("knob-dragging");
       });
+
+      item.addEventListener("pointermove", (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const dy = drag.startY - e.clientY;
+        // Shift = fine adjustment.
+        const range = e.shiftKey ? KNOB_DRAG_PX_FULL_RANGE * 4 : KNOB_DRAG_PX_FULL_RANGE;
+        setKnobValue(k, drag.startVal + (dy / range) * 100);
+      });
+
+      const endDrag = (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        drag = null;
+        item.classList.remove("dragging");
+        document.body.classList.remove("knob-dragging");
+      };
+      item.addEventListener("pointerup", endDrag);
+      item.addEventListener("pointercancel", endDrag);
+      item.addEventListener("lostpointercapture", endDrag);
 
       item.addEventListener("dblclick", () => {
         ensureAudioStarted();
-        k.val = k.defaultVal;
-        renderKnobs();
-        syncKnobsToWorklet();
+        setKnobValue(k, k.defaultVal);
       });
 
       item.addEventListener(
@@ -651,13 +679,7 @@
         (e) => {
           e.preventDefault();
           ensureAudioStarted();
-          const step = e.deltaY < 0 ? 2 : -2;
-          k.val = Math.max(0, Math.min(100, k.val + step));
-          if (k.id !== "sep" && postPresetSelect) {
-            postPresetSelect.value = "custom";
-          }
-          renderKnobs();
-          syncKnobsToWorklet();
+          setKnobValue(k, k.val + (e.deltaY < 0 ? 2 : -2));
         },
         { passive: false }
       );
@@ -676,7 +698,7 @@
       for (const k of KNOB_SPECS) {
         if (map[k.id] !== undefined) k.val = map[k.id];
       }
-      renderKnobs();
+      refreshKnobs();
       syncKnobsToWorklet();
     });
   }
