@@ -2,6 +2,33 @@
   "use strict";
 
   // =========================================================================
+  // 0. Installed-app window size
+  // =========================================================================
+  // Browsers ignore the manifest for window size, so the installed app sizes
+  // itself once per layout version: the width of the configuration tool
+  // (1100px column + 16px padding each side) and the height of the content.
+  // Later manual resizes are kept.
+  (function fitInstalledWindow() {
+    const SIZE_KEY = "bandopm-window-fit-1";
+    const TARGET_INNER_WIDTH = 1132;
+    if (!window.matchMedia("(display-mode: standalone), (display-mode: window-controls-overlay)").matches) return;
+    try {
+      if (localStorage.getItem(SIZE_KEY)) return;
+      localStorage.setItem(SIZE_KEY, "1");
+    } catch (e) {
+      return;
+    }
+    window.addEventListener("load", () => {
+      // Width first: the content height depends on the layout at that width.
+      window.resizeTo(window.outerWidth + (TARGET_INNER_WIDTH - window.innerWidth), window.outerHeight);
+      setTimeout(() => {
+        const wantInnerH = Math.min(document.documentElement.scrollHeight, screen.availHeight - 40);
+        window.resizeTo(window.outerWidth, window.outerHeight + (wantInnerH - window.innerHeight));
+      }, 300);
+    });
+  })();
+
+  // =========================================================================
   // 1. WebMIDI Device Discovery & Auto-Selection (Mirrors Bandolibre midi.html)
   // =========================================================================
   // The firmware's USB strings (code/main-g474/usb/usb_descriptors.c) are
