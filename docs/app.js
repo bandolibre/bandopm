@@ -4,7 +4,17 @@
   // =========================================================================
   // 1. WebMIDI Device Discovery & Auto-Selection (Mirrors Bandolibre midi.html)
   // =========================================================================
-  const BANDOLIBRE_RE = /bandolibre/i;
+  // The firmware's USB strings (code/main-g474/usb/usb_descriptors.c) are
+  // product "Bandolibre" and manufacturer "L'Atelier du Bandonéon Libre".
+  // Linux/macOS name the MIDI port after the product, Windows after the
+  // manufacturer, so a board is recognised by either string. Compared
+  // lowercased, without accents or punctuation. Keep identical to the copy in
+  // bandolibre docs/tools/midi.html.
+  const BANDOLIBRE_RE = /bandolibre|bandoneonlibre/;
+  function normalizeUsbString(s) {
+    return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .toLowerCase().replace(/[^a-z0-9]/g, "");
+  }
   // Matches code/main-g474/app/keyboard.h in bandolibre/bandolibre:
   // L_MIDI_CH = 0 (1-based ch 1 = Left Wing / Bajos)
   // R_MIDI_CH = 1 (1-based ch 2 = Right Wing / Cantabile)
@@ -128,8 +138,10 @@
     updateBellowsDirectionUI();
   }
 
-  function isBandolibre(name) {
-    return !!name && BANDOLIBRE_RE.test(name);
+  // device: an entry of collectDevices() (name + manufacturer of its ports).
+  function isBandolibre(device) {
+    return !!device && [device.name, device.manufacturer]
+      .some((s) => BANDOLIBRE_RE.test(normalizeUsbString(s)));
   }
 
   function setStatus(kind, text) {
@@ -169,7 +181,8 @@
         const input = ins[i] || null;
         const output = outs[i] || null;
         const key = (input && input.id) || (output && output.id);
-        devices.push({ key, name, input, output, index: i, total: count });
+        const manufacturer = (input && input.manufacturer) || (output && output.manufacturer) || "";
+        devices.push({ key, name, manufacturer, input, output, index: i, total: count });
       }
     }
     return devices;
@@ -248,8 +261,8 @@
   function maybeAutoConnect() {
     if (activeKey) return;
     const devices = collectDevices();
-    const fullBando = devices.find((d) => isBandolibre(d.name) && d.input && d.output);
-    const anyBando = fullBando || devices.find((d) => isBandolibre(d.name) && d.input);
+    const fullBando = devices.find((d) => isBandolibre(d) && d.input && d.output);
+    const anyBando = fullBando || devices.find((d) => isBandolibre(d) && d.input);
     if (anyBando) connectTo(anyBando.key);
   }
 
