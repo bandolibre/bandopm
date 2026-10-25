@@ -56,6 +56,10 @@ enum Commands {
         /// Number of coordinate pattern-search rounds
         #[arg(long, default_value_t = 4)]
         rounds: usize,
+        /// Tune only the parameters whose name contains one of these comma-separated parts
+        /// (e.g. `pallet,valve,celda_fill,chiff,click`); all of them when left out
+        #[arg(long)]
+        only: Option<String>,
     },
     /// Render a specific sample ID to WAV for side-by-side inspection
     Render {
@@ -344,10 +348,13 @@ fn main() -> Result<()> {
             print_summary(&card, &cli.out_dir);
             println!(" Evaluation completed in {:.2}s.", t0.elapsed().as_secs_f32());
         }
-        Commands::Tune { rounds } => {
+        Commands::Tune { rounds, only } => {
             let (sr, golden) = load_or_build_golden_cache(&cli.golden_dir, &cli.out_dir, false)?;
             let t0 = Instant::now();
-            let (tuned_preset, card) = tune_preset(&preset, &golden, sr, rounds);
+            let only: Vec<String> = only
+                .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+                .unwrap_or_default();
+            let (tuned_preset, card) = tune_preset(&preset, &golden, sr, rounds, &only);
             std::fs::write(&cli.preset, serde_json::to_string_pretty(&tuned_preset)?)?;
             write_scorecard_reports(&card, &cli.out_dir)?;
             print_summary(&card, &cli.out_dir);

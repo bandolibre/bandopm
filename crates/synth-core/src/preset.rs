@@ -235,6 +235,34 @@ pub enum KeyboardMode {
     PianistSplit = 1,
 }
 
+/// What MIDI note velocity sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VelocityMode {
+    /// Velocity sets how fast the pallet opens (note-on) and closes (note-off); the loudness
+    /// comes from CC#11/43, or from a note's PolyPressure. For a Bandolibre in key-speed mode.
+    #[default]
+    Articulation = 0,
+    /// Velocity also sets the note's own pressure, held while the key is down; CC#11 scales it
+    /// when sent, and CC#64 sustain holds note-offs. For piano keyboards.
+    Loudness = 1,
+}
+
+impl VelocityMode {
+    #[inline]
+    pub const fn from_u8(id: u8) -> Self {
+        match id {
+            1 => Self::Loudness,
+            _ => Self::Articulation,
+        }
+    }
+
+    #[inline]
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+}
+
 impl KeyboardMode {
     #[inline]
     pub const fn from_u8(id: u8) -> Self {
@@ -478,6 +506,36 @@ fn default_right_cabinet_modes() -> [BodyModeParam; 4] {
     ]
 }
 
+fn default_pallet_open_fast_ms() -> f32 {
+    3.3
+}
+fn default_pallet_open_slow_ms() -> f32 {
+    100.0
+}
+fn default_pallet_close_fast_ms() -> f32 {
+    2.5
+}
+fn default_pallet_close_slow_ms() -> f32 {
+    100.0
+}
+fn default_pallet_slot_ratio() -> f32 {
+    // Large enough that the pressure changes over most of the pallet's travel, so a slow key
+    // swells and fades instead of starting and stopping late (0.25 gave a late cut).
+    0.8
+}
+fn default_pallet_slot_ratio_oct() -> f32 {
+    0.15
+}
+fn default_celda_fill_ms() -> f32 {
+    0.5
+}
+fn default_celda_fill_oct() -> f32 {
+    0.5
+}
+fn default_pallet_jet_gain() -> f32 {
+    1.0
+}
+
 /// Complete serializable physical modeling preset for the Bandoneon synthesizer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BandoneonPreset {
@@ -491,10 +549,40 @@ pub struct BandoneonPreset {
     pub bellows_attack_ms: f32,
     /// Bellows pressure release smoothing time constant (ms).
     pub bellows_release_ms: f32,
-    /// Pallet valve opening time constant at mezzo-forte (ms).
+    /// Pallet valve opening time constant at mezzo-forte (ms), up to `v4`.
     pub valve_open_ms: f32,
-    /// Pallet valve closing time constant (ms).
+    /// Pallet valve closing time constant (ms), up to `v4`.
     pub valve_close_ms: f32,
+    /// `v5`: the time the pallet takes to lift fully at note-on velocity 127 and 1 (ms). The
+    /// key moves the pallet, so these are the key's travel times: with the Bandolibre's factory
+    /// settings, 500 ADC counts at 1500 and 50 counts per 10 ms.
+    #[serde(default = "default_pallet_open_fast_ms")]
+    pub pallet_open_fast_ms: f32,
+    #[serde(default = "default_pallet_open_slow_ms")]
+    pub pallet_open_slow_ms: f32,
+    /// `v5`: the time the pallet takes to close at note-off velocity 127 and 1 (ms): 200 ADC
+    /// counts at 800 and 20 counts per 10 ms with the factory settings.
+    #[serde(default = "default_pallet_close_fast_ms")]
+    pub pallet_close_fast_ms: f32,
+    #[serde(default = "default_pallet_close_slow_ms")]
+    pub pallet_close_slow_ms: f32,
+    /// `v5`: reed slot area over the fully open pallet area, at MIDI 60. It sets how much of the
+    /// lift the pallet needs before the reed chamber gets the bellows pressure.
+    #[serde(default = "default_pallet_slot_ratio")]
+    pub pallet_slot_ratio: f32,
+    /// `v5`: how `pallet_slot_ratio` shrinks per octave up (`ratio * 2^(-k * octaves)`):
+    /// bass reeds have larger slots.
+    #[serde(default = "default_pallet_slot_ratio_oct")]
+    pub pallet_slot_ratio_oct: f32,
+    /// `v5`: reed chamber (*celda*) filling time at MIDI 60 (ms).
+    #[serde(default = "default_celda_fill_ms")]
+    pub celda_fill_ms: f32,
+    /// `v5`: how the celda filling time shrinks per octave up (`ms * 2^(-k * octaves)`).
+    #[serde(default = "default_celda_fill_oct")]
+    pub celda_fill_oct: f32,
+    /// `v5`: level of the air jet hiss through the half-open pallet.
+    #[serde(default = "default_pallet_jet_gain")]
+    pub pallet_jet_gain: f32,
     /// Mechanical pallet valve click level (linear gain).
     pub pallet_click_gain: f32,
     /// Turbulent air leakage / breath noise level (linear gain).
@@ -589,9 +677,38 @@ pub struct ResolvedNoteParams {
     pub celda_a3: f32,
     pub celda_gain: f32,
     pub zapatilla_thump_gain: f32,
+    // --- v5 pallet ---
+    /// Reed slot area over the fully open pallet area for this note.
+    pub pallet_slot_ratio: f32,
+    /// Per-sample one-pole coefficient of the reed chamber filling.
+    pub celda_fill_coeff: f32,
 }
 
 impl BandoneonPreset {
+    /// `v5`: the time in ms the pallet takes to move fully for a MIDI velocity, between its
+    /// times at velocity 127 (`fast_ms`) and 1 (`slow_ms`). The Bandolibre maps the key's speed
+    /// linearly to velocity, and a travel's time is the inverse of its speed, so the time is
+    /// hyperbolic in velocity: most of the range is slow keys.
+    #[inline]
+    pub fn key_travel_ms(fast_ms: f32, slow_ms: f32, velocity: u8) -> f32 {
+        let fast = fast_ms.clamp(0.2, 500.0);
+        let slow = slow_ms.clamp(fast, 500.0);
+        let v = (velocity.clamp(1, 127) as f32 - 1.0) / 126.0;
+        1.0 / (1.0 / slow + v * (1.0 / fast - 1.0 / slow))
+    }
+
+    /// `v5`: the pallet's lift time for a note-on velocity (ms).
+    #[inline]
+    pub fn pallet_open_ms(&self, velocity: u8) -> f32 {
+        Self::key_travel_ms(self.pallet_open_fast_ms, self.pallet_open_slow_ms, velocity)
+    }
+
+    /// `v5`: the pallet's closing time for a note-off velocity (ms).
+    #[inline]
+    pub fn pallet_close_ms(&self, velocity: u8) -> f32 {
+        Self::key_travel_ms(self.pallet_close_fast_ms, self.pallet_close_slow_ms, velocity)
+    }
+
     /// Returns the calibrated preset for the requested `SynthVersion`.
     pub fn for_version(version: SynthVersion) -> Self {
         match version {
@@ -639,6 +756,15 @@ impl BandoneonPreset {
             bellows_release_ms: 7.0,
             valve_open_ms: 3.3,
             valve_close_ms: 10.0,
+            pallet_open_fast_ms: default_pallet_open_fast_ms(),
+            pallet_open_slow_ms: default_pallet_open_slow_ms(),
+            pallet_close_fast_ms: default_pallet_close_fast_ms(),
+            pallet_close_slow_ms: default_pallet_close_slow_ms(),
+            pallet_slot_ratio: default_pallet_slot_ratio(),
+            pallet_slot_ratio_oct: default_pallet_slot_ratio_oct(),
+            celda_fill_ms: default_celda_fill_ms(),
+            celda_fill_oct: default_celda_fill_oct(),
+            pallet_jet_gain: default_pallet_jet_gain(),
             pallet_click_gain: 0.0022,
             air_turbulence_gain: 0.022507008,
             chamber_coupling: 0.16,
@@ -985,33 +1111,72 @@ impl BandoneonPreset {
     /// 2. Natural Sustain Pulsation (Dual-reed acoustic beating + physiological fueye bellows respiration)
     /// 3. Rich Low-Mid Body (`180-450 Hz` chest warmth) & De-Boxed 1 kHz Midrange
     /// 4. Crystalline Treble Clarity (`2-6 kHz` pitch-scaled jet corner & monopole presence)
+    /// 5. Pallet driven by key speed: velocity sets the lift time, and the reeds get the
+    ///    pressure through the pallet gap and reed slot in series (retuned with it)
     pub fn v5_vivo() -> Self {
         let mut p = Self::v4_unified();
         p.name = "Alfred Arnold (AA) Physical Model v5 Vivo (Staged 8'->4' Attack + Sustain Pulsation + Low-Mid Body & Treble Clarity)".to_string();
         p.version = SynthVersion::V5Vivo;
+        p.bellows_attack_ms = 2.668;
+        p.pallet_jet_gain = 0.83512324;
+        p.pallet_click_gain = 0.0022;
+        p.left_bajos.p_th_8ft_base = 0.0229408;
+        p.left_bajos.p_th_4ft_base = 0.0220592;
+        p.left_bajos.octave_4ft_gain_base = 1.224912;
+        p.left_bajos.octave_4ft_gain_slope = -0.228;
+        p.left_bajos.octave_4ft_gain_curve = -0.75491196;
+        p.left_bajos.slot_sharpness_slope = -1.9516494;
+        p.left_bajos.pressure_brightness_mod = 3.437547;
+        p.left_bajos.octave_beat_hz_base = 3.748373;
+        p.left_bajos.h3_notch_inject = 0.016;
         p.left_bajos.pallet_click_scale = 0.17230001;
-        p.left_bajos.staccato_chiff_gain = 1.2770724;
+        p.left_bajos.staccato_chiff_gain = 1.6370726;
+        p.left_bajos.slot_channel_notch = -0.010508801;
+        p.left_bajos.hopf_onset_lead = -0.0236448;
         p.left_bajos.celda_cavity_hz_base = 1125.25;
-        p.right_cantabile.p_th_8ft_base = 0.02365;
+        p.left_bajos.celda_cavity_gain_slope_db = 0.18322176;
+        p.left_bajos.valve_occlusion_muffle = 0.08969121;
+        p.left_bajos.zapatilla_thump_gain = 0.0;
+        p.right_cantabile.p_th_8ft_base = 0.02197;
         p.right_cantabile.octave_4ft_pressure_boost = 0.62299997;
         p.right_cantabile.reed_asymmetry_slope = -0.18175;
-        p.right_cantabile.slot_sharpness_base = 5.401248;
-        p.right_cantabile.slot_sharpness_slope = -0.9056;
+        p.right_cantabile.slot_sharpness_base = 5.29616;
+        p.right_cantabile.slot_sharpness_slope = -0.9856;
         p.right_cantabile.pressure_brightness_mod = 3.0425622;
-        p.right_cantabile.pallet_click_scale = 0.69382465;
-        p.right_cantabile.monopole_rad_boost = -0.0264;
-        p.right_cantabile.monopole_rad_slope = -0.25128368;
-        p.right_cantabile.h3_notch_inject = 0.0048352005;
-        p.right_cantabile.staccato_chiff_gain = 0.7732138;
-        p.right_cantabile.slot_pinch_adaa = 0.0022;
-        p.right_cantabile.slot_channel_notch = 0.00528;
-        p.right_cantabile.coupled_ode_momentum = 0.00264;
+        p.right_cantabile.jet_corner_base_hz = 3780.0;
+        p.right_cantabile.pallet_click_scale = 0.76876867;
+        p.right_cantabile.air_noise_base = 1.0125529;
+        p.right_cantabile.monopole_rad_boost = -0.064031996;
+        p.right_cantabile.monopole_rad_slope = -0.28622767;
+        p.right_cantabile.duty_bias_base = 0.012;
+        p.right_cantabile.clamped_bar_h6_gain = 0.020869968;
+        p.right_cantabile.h3_notch_inject = 0.012835201;
+        p.right_cantabile.staccato_chiff_gain = 4.204403;
+        p.right_cantabile.slot_pinch_adaa = 0.013992;
+        p.right_cantabile.slot_channel_notch = 0.012806402;
+        p.right_cantabile.slot_emergence_swell = -0.009408;
+        p.right_cantabile.low_bass_h2_tame = -0.070199996;
+        p.right_cantabile.coupled_ode_momentum = 0.0326496;
+        p.right_cantabile.celda_cross_mod = 0.009408;
         p.right_cantabile.hopf_onset_lead = -0.011879999;
-        p.right_cantabile.startup_chirp_cents = -0.1232;
-        p.right_cantabile.valve_occlusion_muffle = 0.0055;
-        p.right_cantabile.pallet_click_u_slope = 0.05689656;
-        p.right_cantabile.zapatilla_thump_gain = 0.099;
+        p.right_cantabile.startup_chirp_cents = -0.38662398;
+        p.right_cantabile.celda_cavity_gain_slope_db = -0.23923199;
+        p.right_cantabile.celda_cavity_q = 1.0975999;
+        p.right_cantabile.valve_occlusion_muffle = 0.0284808;
+        p.right_cantabile.pallet_click_u_slope = 0.19654712;
+        p.right_cantabile.zapatilla_thump_gain = 0.64211994;
+        p.body_modes[2].gain_db = 3.9505277;
+        p.left_cabinet_modes[0].gain_db = -0.12;
+        p.left_cabinet_modes[1].q = 1.4879999;
+        p.left_cabinet_modes[2].q = 1.912;
+        p.left_cabinet_modes[2].gain_db = 0.262464;
+        p.left_cabinet_modes[3].q = 1.4000001;
+        p.left_cabinet_modes[3].gain_db = 0.12;
+        p.right_cabinet_modes[0].gain_db = -0.082368;
+        p.right_cabinet_modes[1].q = 1.6118398;
+        p.right_cabinet_modes[1].gain_db = 0.037632;
         p.right_cabinet_modes[2].q = 1.51;
+        p.right_cabinet_modes[3].gain_db = 0.12;
         p
     }
 
@@ -1266,6 +1431,17 @@ impl BandoneonPreset {
             (0.0, 0.0, 0.0, 0.0)
         };
 
+        // v5 pallet: the reed slot and the celda both shrink up the compass.
+        let octaves_from_c4 = (clamped_note as f32 - 60.0) / 12.0;
+        let pallet_slot_ratio = (self.pallet_slot_ratio.clamp(0.02, 1.0)
+            * 2.0f32.powf(-self.pallet_slot_ratio_oct.clamp(-1.0, 1.0) * octaves_from_c4))
+        .clamp(0.02, 1.0);
+        let celda_fill_ms = (self.celda_fill_ms.clamp(0.02, 10.0)
+            * 2.0f32.powf(-self.celda_fill_oct.clamp(-1.0, 2.0) * octaves_from_c4))
+        .clamp(0.02, 20.0);
+        let celda_fill_coeff =
+            (1.0 - (-1.0 / (celda_fill_ms * 0.001 * sr).max(1.0)).exp()).clamp(0.0005, 1.0);
+
         ResolvedNoteParams {
             u_manual: u,
             reed_8ft,
@@ -1292,6 +1468,8 @@ impl BandoneonPreset {
             } else {
                 0.0
             },
+            pallet_slot_ratio,
+            celda_fill_coeff,
         }
     }
 
@@ -1304,6 +1482,15 @@ impl BandoneonPreset {
         self.bellows_release_ms = src.bellows_release_ms;
         self.valve_open_ms = src.valve_open_ms;
         self.valve_close_ms = src.valve_close_ms;
+        self.pallet_open_fast_ms = src.pallet_open_fast_ms;
+        self.pallet_open_slow_ms = src.pallet_open_slow_ms;
+        self.pallet_close_fast_ms = src.pallet_close_fast_ms;
+        self.pallet_close_slow_ms = src.pallet_close_slow_ms;
+        self.pallet_slot_ratio = src.pallet_slot_ratio;
+        self.pallet_slot_ratio_oct = src.pallet_slot_ratio_oct;
+        self.celda_fill_ms = src.celda_fill_ms;
+        self.celda_fill_oct = src.celda_fill_oct;
+        self.pallet_jet_gain = src.pallet_jet_gain;
         self.pallet_click_gain = src.pallet_click_gain;
         self.air_turbulence_gain = src.air_turbulence_gain;
         self.chamber_coupling = src.chamber_coupling;

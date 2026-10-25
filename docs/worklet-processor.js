@@ -18,8 +18,8 @@ class BandolibreProcessor extends AudioWorkletProcessor {
           this.ctxPtr = this.wasmExports.synth_create(sampleRate);
           this.leftPtr = this.wasmExports.synth_left_buffer_ptr(this.ctxPtr);
           this.rightPtr = this.wasmExports.synth_right_buffer_ptr(this.ctxPtr);
-          if (msg.tableMode !== undefined) {
-            this.wasmExports.synth_set_table_mode(this.ctxPtr, msg.tableMode ? 1 : 0);
+          if (msg.velocityMode !== undefined && this.wasmExports.synth_set_velocity_mode) {
+            this.wasmExports.synth_set_velocity_mode(this.ctxPtr, msg.velocityMode | 0);
           }
           const initialVer = this.pendingVersionId !== null ? this.pendingVersionId : msg.versionId;
           if (initialVer !== undefined && initialVer !== null && this.wasmExports.synth_set_version) {
@@ -69,9 +69,9 @@ class BandolibreProcessor extends AudioWorkletProcessor {
         } else {
           this.pendingEvents.push([msg.status, msg.data1, msg.data2]);
         }
-      } else if (msg.type === 'table-mode') {
-        if (this.wasmExports && this.ctxPtr) {
-          this.wasmExports.synth_set_table_mode(this.ctxPtr, msg.enabled ? 1 : 0);
+      } else if (msg.type === 'set-velocity-mode') {
+        if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_velocity_mode) {
+          this.wasmExports.synth_set_velocity_mode(this.ctxPtr, msg.modeId | 0);
         }
       } else if (msg.type === 'set-keyboard-mode') {
         if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_keyboard_mode) {

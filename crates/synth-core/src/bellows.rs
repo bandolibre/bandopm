@@ -18,10 +18,6 @@ pub struct BellowsModel {
     release_coeff: f32,
     /// Impulse decay coefficient.
     impulse_decay_coeff: f32,
-    /// Whether Table Mode is active (auto-generates bellows pressure from Note On velocity when CC#11 is 0).
-    pub table_mode: bool,
-    /// Fallback pressure derived from active note velocity in Table Mode.
-    table_mode_pressure: f32,
     /// Natural sustain pulsation depth on held notes (`0.0` in `v1..v4`, active in `v5`).
     pulsation_depth: f32,
     /// Number of consecutive audio samples with stationary CC#11 / expression input.
@@ -50,8 +46,6 @@ impl BellowsModel {
             attack_coeff: 0.01,
             release_coeff: 0.005,
             impulse_decay_coeff: 0.999,
-            table_mode: false,
-            table_mode_pressure: 0.0,
             pulsation_depth: 0.0,
             steady_control_samples: 0,
             steady_hold_env: 0.0,
@@ -120,7 +114,8 @@ impl BellowsModel {
         };
     }
 
-    /// Called on `Note On` with the Bandolibre blade velocity (`1..=127`).
+    /// Called on `Note On` with the Bandolibre blade velocity (`1..=127`), up to `v4`: a sharp
+    /// attack adds a short boost to the shared pressure. `v5` does not call it.
     #[inline]
     pub fn notify_note_on(&mut self, velocity: u8) {
         let vel_norm = (velocity.min(127) as f32) / 127.0;
@@ -129,26 +124,12 @@ impl BellowsModel {
         if boost > self.velocity_impulse {
             self.velocity_impulse = boost;
         }
-        if self.table_mode {
-            self.table_mode_pressure = vel_norm.powf(self.curve_gamma);
-        }
-    }
-
-    #[inline]
-    pub fn notify_all_notes_off(&mut self) {
-        self.table_mode_pressure = 0.0;
     }
 
     /// Advances the bellows state by one audio sample and returns instantaneous reservoir pressure.
     #[inline(always)]
     pub fn tick(&mut self, total_volume_flow: f32, chamber_coupling: f32) -> f32 {
-        let raw_target = if self.table_mode && self.target_cc11 < 1e-4 {
-            self.table_mode_pressure
-        } else {
-            self.target_pressure
-        };
-
-        let delta = raw_target - self.current_pressure;
+        let delta = self.target_pressure - self.current_pressure;
         let coeff = if delta > 0.0 {
             self.attack_coeff
         } else {

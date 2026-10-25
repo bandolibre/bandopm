@@ -1,6 +1,8 @@
 //! Minimal zero-dependency WebAssembly C-ABI bindings for WebAudio `AudioWorkletProcessor`.
 
-use synth_core::{BandoneonPreset, KeyboardMode, MidiEvent, SynthEngine, SynthVersion};
+use synth_core::{
+    BandoneonPreset, KeyboardMode, MidiEvent, SynthEngine, SynthVersion, VelocityMode,
+};
 
 pub struct WasmSynthContext {
     engine: SynthEngine,
@@ -48,12 +50,15 @@ pub unsafe extern "C" fn synth_handle_midi(
     }
 }
 
+/// Sets what note velocity sets (`0 = Articulation`: attack and release, `1 = Loudness`).
+///
 /// # Safety
 /// `ctx` must be a valid pointer returned by `synth_create`.
 #[no_mangle]
-pub unsafe extern "C" fn synth_set_table_mode(ctx: *mut WasmSynthContext, enabled: bool) {
+pub unsafe extern "C" fn synth_set_velocity_mode(ctx: *mut WasmSynthContext, mode_id: u8) {
     if let Some(c) = ctx.as_mut() {
-        c.engine.handle_midi_event(MidiEvent::SetTableMode(enabled));
+        c.engine
+            .handle_midi_event(MidiEvent::SetVelocityMode(VelocityMode::from_u8(mode_id)));
     }
 }
 

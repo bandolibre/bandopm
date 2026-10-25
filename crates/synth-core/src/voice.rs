@@ -1,6 +1,17 @@
 use crate::preset::{BandoneonPreset, Hand, ResolvedNoteParams};
 use crate::reed::FreeReed;
 
+/// `v5`: the fraction of the bellows pressure that reaches the celda for a pallet `lift` in
+/// `[0, 1]` and a reed slot area `slot_ratio` times the open pallet's. The pallet gap and the
+/// reed slot are two orifices in series, flow ~ area * sqrt(drop), so the celda gets
+/// `L^2 / (L^2 + r^2)`, normalised to 1 at full lift.
+#[inline]
+pub fn pallet_fill(lift: f32, slot_ratio: f32) -> f32 {
+    let r2 = slot_ratio * slot_ratio;
+    let l2 = lift * lift;
+    l2 * (1.0 + r2) / (l2 + r2)
+}
+
 /// Single bandoneon button voice modeling a shared reed chamber (*celda*), pallet valve,
 /// coupled 8' (primary) and 4' (octave) free reeds with mode-locked acoustic beating,
 /// pitch-scaled *celda* cavity resonance (*Okada 2025*), leather *zapatilla* valve acoustics,
@@ -17,11 +28,24 @@ pub struct BandoneonVoice {
     /// Resolved physical parameters for this note.
     params: ResolvedNoteParams,
 
-    /// Pallet valve aperture `A_valve(t) in [0.0, 1.0]`.
+    /// Pallet valve aperture `A_valve(t) in [0.0, 1.0]`: the fraction of the bellows pressure
+    /// the reeds get. From `v5` it is the celda's filling, `celda_fill`.
     pub valve_aperture: f32,
     prev_valve_aperture: f32,
     valve_open_coeff: f32,
     valve_close_coeff: f32,
+    /// `v5`: pallet lift in `[0.0, 1.0]`, moving at constant speed (the key's).
+    pub pallet_lift: f32,
+    /// `v5`: lift added per sample while opening, and removed per sample while closing.
+    lift_open_inc: f32,
+    lift_close_inc: f32,
+    /// Per-note pressure from the note-on velocity (`VelocityMode::Loudness`), scaled by the
+    /// bellows; `< 0.0` when the bellows alone drives the note.
+    velocity_pressure: f32,
+    /// Note-off received while the sustain pedal was down: released when the pedal lifts.
+    pub sustained: bool,
+    /// Note-off velocity kept for the release of a sustained note.
+    pub sustained_release_velocity: u8,
 
     /// Mechanical pallet valve click envelope.
     click_env: f32,
@@ -78,6 +102,12 @@ impl BandoneonVoice {
             prev_valve_aperture: 0.0,
             valve_open_coeff: 0.01,
             valve_close_coeff: 0.005,
+            pallet_lift: 0.0,
+            lift_open_inc: 0.01,
+            lift_close_inc: 0.005,
+            velocity_pressure: -1.0,
+            sustained: false,
+            sustained_release_velocity: 64,
             click_env: 0.0,
             click_filter_z1: 0.0,
             zapatilla_env: 0.0,
@@ -120,6 +150,9 @@ impl BandoneonVoice {
         ((x as i32) as f32) * (1.0 / 2147483648.0)
     }
 
+    /// `velocity_pressure` is the note's own pressure from its velocity
+    /// (`VelocityMode::Loudness`), or `< 0.0` to follow the bellows alone.
+    #[allow(clippy::too_many_arguments)]
     pub fn trigger_note_on(
         &mut self,
         midi_note: u8,
@@ -129,10 +162,14 @@ impl BandoneonVoice {
         preset: &BandoneonPreset,
         age: u64,
         reference_hz: f32,
+        velocity_pressure: f32,
     ) {
         let same_button = self.active && self.midi_note == midi_note && self.hand == hand;
+        let pallet = preset.version.use_v5_vivo();
         self.active = true;
         self.key_down = true;
+        self.sustained = false;
+        self.velocity_pressure = velocity_pressure;
         self.midi_note = midi_note;
         self.hand = hand;
         self.age = age;
@@ -158,27 +195,41 @@ impl BandoneonVoice {
         self.beat_phase = 0.15;
         if !same_button {
             self.valve_aperture = 0.0;
+            self.pallet_lift = 0.0;
             self.click_filter_z1 = 0.0;
             self.noise_bp_z1 = 0.0;
             self.noise_bp_z2 = 0.0;
         }
         self.prev_valve_aperture = self.valve_aperture;
-        self.onset_transient_env = vel_norm * vel_norm;
         self.step_attack_scale = 0.0;
         self.note_pressure_target = -1.0;
         self.note_pressure_current = 0.0;
         self.voice_samples = 0;
-        // High-velocity staccato attacks strongly excite the lower-mass 4' octave reed
-        self.peak_voice_pressure = 0.25 + 1.05 * vel_norm * vel_norm;
 
-        // Higher velocity opens the pallet valve faster
-        let open_ms: f32 = (preset.valve_open_ms * (1.35 - 0.75 * vel_norm)).max(0.6);
-        let close_ms: f32 = preset.valve_close_ms.max(1.0);
-        self.valve_open_coeff = (1.0 - (-1.0 / (open_ms * 0.001 * sr).max(1.0)).exp())
-            .clamp(0.0005, 0.5);
-        self.valve_close_coeff =
-            (1.0 - (-1.0 / (close_ms * 0.001 * sr).max(1.0)).exp())
-                .clamp(0.0002, 0.5);
+        if pallet {
+            // v5: velocity is the key's speed, so it sets only how fast the pallet lifts. The
+            // onset transients follow that opening speed (1.0 at the fastest), and the 4' reed
+            // weighting starts from the pressure alone.
+            let open_ms = preset.pallet_open_ms(velocity);
+            let fastest_ms = preset.pallet_open_ms(127);
+            self.lift_open_inc = 1.0 / (open_ms * 0.001 * sr).max(1.0);
+            self.lift_close_inc = 1.0 / (preset.pallet_close_ms(64) * 0.001 * sr).max(1.0);
+            self.onset_transient_env = (fastest_ms / open_ms).clamp(0.0, 1.0);
+            self.peak_voice_pressure = 0.25;
+        } else {
+            self.onset_transient_env = vel_norm * vel_norm;
+            // High-velocity staccato attacks strongly excite the lower-mass 4' octave reed
+            self.peak_voice_pressure = 0.25 + 1.05 * vel_norm * vel_norm;
+
+            // Higher velocity opens the pallet valve faster
+            let open_ms: f32 = (preset.valve_open_ms * (1.35 - 0.75 * vel_norm)).max(0.6);
+            let close_ms: f32 = preset.valve_close_ms.max(1.0);
+            self.valve_open_coeff = (1.0 - (-1.0 / (open_ms * 0.001 * sr).max(1.0)).exp())
+                .clamp(0.0005, 0.5);
+            self.valve_close_coeff =
+                (1.0 - (-1.0 / (close_ms * 0.001 * sr).max(1.0)).exp())
+                    .clamp(0.0002, 0.5);
+        }
 
         // Pallet valve click scales with velocity^1.6 and manual transmission scale
         self.click_env =
@@ -206,9 +257,16 @@ impl BandoneonVoice {
         self.note_pressure_target = -1.0;
     }
 
-    pub fn trigger_note_off(&mut self, release_velocity: u8, preset: &BandoneonPreset) {
+    pub fn trigger_note_off(&mut self, release_velocity: u8, preset: &BandoneonPreset, sample_rate: f32) {
         if self.key_down {
             self.key_down = false;
+            self.sustained = false;
+            if preset.version.use_v5_vivo() {
+                // v5: the release velocity is the key's speed back up, so it sets how fast the
+                // pallet closes.
+                let close_ms = preset.pallet_close_ms(release_velocity);
+                self.lift_close_inc = 1.0 / (close_ms * 0.001 * sample_rate.max(8000.0)).max(1.0);
+            }
             let rel_norm = (release_velocity.min(127) as f32) / 127.0;
             self.click_env += 0.35
                 * rel_norm
@@ -243,13 +301,42 @@ impl BandoneonVoice {
             self.note_pressure_current +=
                 0.008 * (self.note_pressure_target - self.note_pressure_current);
             self.note_pressure_current
+        } else if self.velocity_pressure >= 0.0 {
+            self.velocity_pressure * bellows_pressure
         } else {
             bellows_pressure
         };
 
         // 1. Update pallet valve aperture A_valve(t)
         self.prev_valve_aperture = self.valve_aperture;
-        if self.key_down {
+        let mut pallet_jet = 0.0f32;
+        if version.use_v5_vivo() {
+            // v5: the pallet lifts and closes at constant speed. The celda gets `pallet_fill`
+            // of the bellows pressure: almost nothing while the gap is a slit, then a steep rise
+            // that saturates long before full lift. It fills through a short lag for its air
+            // volume.
+            if self.key_down {
+                self.pallet_lift = (self.pallet_lift + self.lift_open_inc).min(1.0);
+            } else {
+                self.pallet_lift = (self.pallet_lift - self.lift_close_inc).max(0.0);
+            }
+            if self.pallet_lift >= 1.0 && self.valve_aperture >= 0.99999 {
+                // Fully open and filled: the common held-note case costs nothing more.
+                self.valve_aperture = 1.0;
+            } else {
+                let r = self.params.pallet_slot_ratio;
+                let fill_target = pallet_fill(self.pallet_lift, r);
+                self.valve_aperture +=
+                    self.params.celda_fill_coeff * (fill_target - self.valve_aperture);
+                if self.pallet_lift == 0.0 && self.valve_aperture < 1e-5 {
+                    self.valve_aperture = 0.0;
+                }
+                // Air jet through the half-open pallet: the gap's flow times the pressure drop
+                // across it. It peaks while the lift is about r and vanishes once fully open.
+                pallet_jet = self.pallet_lift * (1.0 - fill_target).max(0.0) * (2.0 / r)
+                    * bellows_pressure;
+            }
+        } else if self.key_down {
             if self.valve_aperture < 0.9999 {
                 self.valve_aperture += self.valve_open_coeff * (1.0 - self.valve_aperture);
             } else {
@@ -327,7 +414,9 @@ impl BandoneonVoice {
         // Dynamic 4'-to-8' coupling gain uses smoothed `peak_voice_pressure` so it doesn't
         // square/warp the within-note attack rise time contour.
         let vel_excess = (self.velocity_norm - 0.34).max(0.0);
-        let vel_4ft_boost = if version.use_v3_tran() {
+        // v5 drops this: key speed shapes only the pallet, and the 4' brightness of a hard
+        // attack comes from the faster pressure rise.
+        let vel_4ft_boost = if version.use_v3_tran() && !version.use_v5_vivo() {
             1.0 + self.params.staccato_4ft_boost
                 * (0.45 * self.velocity_norm * self.velocity_norm + 1.35 * vel_excess)
         } else {
@@ -417,9 +506,8 @@ impl BandoneonVoice {
                 let g4_base = dyn_4ft_gain * (1.0 + 0.18 * w_hopf).max(0.25);
                 if version.use_v5_vivo() && elapsed_s < 0.032 {
                     if self.voice_samples == 1 {
-                        let steady_p0 =
-                            bellows_pressure - 0.06 * self.velocity_norm * self.onset_transient_env;
-                        self.step_attack_scale = if steady_p0 >= 0.135 {
+                        // v5 has no velocity bump on the bellows: its pressure is already steady.
+                        self.step_attack_scale = if bellows_pressure >= 0.135 {
                             self.onset_transient_env
                         } else {
                             0.0
@@ -448,9 +536,11 @@ impl BandoneonVoice {
         } else {
             (1.0, 0.0, 1.0, dyn_4ft_gain)
         };
+        // The pallet jet blows while the celda is still nearly empty, so it is not scaled by it.
         let aero_drive =
             (flow_env * self.params.air_noise_scale + 7.5 * vortex_burst + leak_chiff)
-                * self.valve_aperture;
+                * self.valve_aperture
+                + preset.pallet_jet_gain * pallet_jet;
         if aero_drive > 1e-5 && preset.air_turbulence_gain > 0.0 {
             self.noise_bp_z1 += 0.24 * (white - self.noise_bp_z1);
             let hp = self.noise_bp_z1 - self.noise_bp_z2;

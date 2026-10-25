@@ -245,6 +245,14 @@
       color: var(--muted);
     }
 
+    /* A labelled control in the keyboard toolbar: its name, then the control. */
+    .toolbar-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
     select.apple-select {
       font-family: inherit;
       font-size: 0.79rem;
@@ -454,14 +462,14 @@
       box-shadow: 0 14px 36px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
 
+    /* Narrow windows wrap the labelled groups onto more lines. */
     .stage-toolbar {
       display: flex;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: flex-start;
-      gap: 8px;
+      gap: 8px 14px;
       white-space: nowrap;
-      overflow-x: auto;
     }
 
     .segmented-bar {
@@ -1058,11 +1066,23 @@
     <!-- 3. Keyboard Stage with Integrated Central Bellows (Fueye) Spine -->
     <div class="keyboard-stage">
       <div class="stage-toolbar">
-        <div class="segmented-bar" id="manualSegBar" role="tablist" aria-label="Keyboard Layout">
-          <button type="button" class="seg-btn active" data-mode="dual">Dual</button>
-          <button type="button" class="seg-btn" data-mode="pianist_split">Pianist Split</button>
-          <button type="button" class="seg-btn" data-mode="left">Bajos</button>
-          <button type="button" class="seg-btn" data-mode="right">Cantabile</button>
+        <div class="toolbar-group">
+          <span class="pill-label" id="manualSegLabel">Keyboard</span>
+          <div class="segmented-bar" id="manualSegBar" role="tablist" aria-labelledby="manualSegLabel">
+            <button type="button" class="seg-btn active" data-mode="dual">Dual</button>
+            <button type="button" class="seg-btn" data-mode="pianist_split">Pianist Split</button>
+            <button type="button" class="seg-btn" data-mode="left">Bajos</button>
+            <button type="button" class="seg-btn" data-mode="right">Cantabile</button>
+          </div>
+        </div>
+
+        <div class="toolbar-group"
+             title="What MIDI note velocity sets.&#10;&#10;Loudness (piano keyboards): note-on velocity sets the note's loudness and how sharply it starts; note-off velocity, how sharply it stops. CC#11 still scales the level when sent; the sustain pedal (CC#64) holds notes.&#10;&#10;Attack &amp; release (Bandolibre): CC#11, the bellows, sets the loudness; note-on and note-off velocity only set how sharply each note starts and stops. Chosen when a Bandolibre is paired, which then sends its key speed as velocity.&#10;&#10;The on-screen keyboard sounds the same either way.">
+          <span class="pill-label" id="velocitySegLabel">Velocity sets</span>
+          <div class="segmented-bar" id="velocitySegBar" role="group" aria-labelledby="velocitySegLabel">
+            <button type="button" class="seg-btn active" data-velocity="1">Loudness</button>
+            <button type="button" class="seg-btn" data-velocity="0">Attack &amp; release</button>
+          </div>
         </div>
 
         <!-- Hidden select kept in sync for keyboard mode logic -->

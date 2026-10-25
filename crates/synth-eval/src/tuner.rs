@@ -11,6 +11,7 @@ pub fn tune_preset(
     golden_samples: &[CachedGoldenSample],
     sample_rate: u32,
     rounds: usize,
+    only: &[String],
 ) -> (BandoneonPreset, Scorecard) {
     let mut best_preset = initial_preset.clone();
     let mut best_card = evaluate_preset(&best_preset, golden_samples, sample_rate, false);
@@ -795,6 +796,51 @@ pub fn tune_preset(
             ),
         ];
         mutators.extend(tran_coupled);
+    }
+
+    if ver.use_v5_vivo() {
+        // v5 pallet: the slot ratio sets the pressure law, plus the celda filling and the jet
+        // hiss. The pallet times are not tuned: they are the key's travel times, which the
+        // eval cannot see (it replays each recording's attack as bellows pressure).
+        let pallet_muts: Vec<(String, f32, ParamMutator)> = vec![
+            (
+                "pallet_slot_ratio".into(),
+                0.03,
+                Box::new(|p, d| p.pallet_slot_ratio = (p.pallet_slot_ratio + d).clamp(0.05, 0.8)),
+            ),
+            (
+                "pallet_slot_ratio_oct".into(),
+                0.05,
+                Box::new(|p, d| {
+                    p.pallet_slot_ratio_oct = (p.pallet_slot_ratio_oct + d).clamp(-0.5, 0.8)
+                }),
+            ),
+            (
+                "celda_fill_ms".into(),
+                0.1,
+                Box::new(|p, d| p.celda_fill_ms = (p.celda_fill_ms + d).clamp(0.05, 5.0)),
+            ),
+            (
+                "celda_fill_oct".into(),
+                0.1,
+                Box::new(|p, d| p.celda_fill_oct = (p.celda_fill_oct + d).clamp(-0.5, 1.5)),
+            ),
+            (
+                "pallet_jet_gain".into(),
+                0.2,
+                Box::new(|p, d| p.pallet_jet_gain = (p.pallet_jet_gain + d).clamp(0.0, 8.0)),
+            ),
+        ];
+        mutators.extend(pallet_muts);
+    }
+
+    if !only.is_empty() {
+        mutators.retain(|(name, _, _)| only.iter().any(|part| name.contains(part.as_str())));
+        println!(
+            "[Tuner] Tuning {} parameters: {}",
+            mutators.len(),
+            mutators.iter().map(|(n, _, _)| n.as_str()).collect::<Vec<_>>().join(", ")
+        );
     }
 
     for round in 0..rounds {

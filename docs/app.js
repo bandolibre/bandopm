@@ -57,6 +57,14 @@
   let activeName = null;
   let activeInput = null;
   let activeOutput = null;
+  // Whether the connected device is a Bandolibre: it switches "Velocity sets"
+  // to attack & release, and gets the velocity lease.
+  let activeIsBandolibre = false;
+  // What note velocity sets in the synth: 0 = attack & release (the loudness
+  // comes from CC#11), 1 = loudness. Loudness until a Bandolibre is paired.
+  const VELOCITY_ARTICULATION = 0;
+  const VELOCITY_LOUDNESS = 1;
+  let velocityMode = VELOCITY_LOUDNESS;
   let liveCcMsb = 0;
   let liveCcLsb = 0;
   let lastHardwareCcMsb = 0;
@@ -66,6 +74,10 @@
   // ---- Bandolibre SysEx Protocol (mirrors bandolibre/docs/tools/midi.html) ----
   const SYSEX_MSG_HELLO = 0x00;
   const SYSEX_MSG_BELLOWS_DIRECTION = 0x05;
+  // Renewed every second in attack & release mode: the Bandolibre switches its
+  // "Velocity from" setting to key speed (not saved), and restores it 2 s
+  // after the last renewal. No reply.
+  const SYSEX_MSG_VELOCITY_LEASE = 0x0c;
   const BELLOWS_PULL = 0;
   const BELLOWS_PUSH = 1;
   const BELLOWS_NEUTRAL = 2;
@@ -276,6 +288,10 @@
     sysexBuf = [];
     inSysex = false;
     sendAllNotesOff();
+    if (activeIsBandolibre) {
+      activeIsBandolibre = false;
+      setVelocityMode(VELOCITY_LOUDNESS);
+    }
     renderSelector();
     updateStatus();
   }
@@ -298,8 +314,36 @@
       } catch (_) {}
     }
 
+    if (isBandolibre(device)) {
+      activeIsBandolibre = true;
+      setVelocityMode(VELOCITY_ARTICULATION);
+    }
     renderSelector();
     updateStatus();
+  }
+
+  /* In attack & release mode, asks the paired Bandolibre for key-speed
+   * velocities. Called on each mode change and every second. */
+  function renewVelocityLease() {
+    if (!activeOutput || !activeIsBandolibre || velocityMode !== VELOCITY_ARTICULATION) return;
+    try {
+      activeOutput.send(buildSysexFrame([SYSEX_MSG_VELOCITY_LEASE]));
+    } catch (_) {}
+  }
+
+  /* Sets what note velocity sets, in the synth and on the toggle. */
+  function setVelocityMode(mode) {
+    velocityMode = mode;
+    if (velocitySegBar) {
+      velocitySegBar.querySelectorAll(".seg-btn").forEach((b) => {
+        b.classList.toggle("active", +b.dataset.velocity === mode);
+      });
+    }
+    if (workletNode) workletNode.port.postMessage({ type: "set-velocity-mode", modeId: mode });
+    if (mirrorWasm && mirrorCtx && mirrorWasm.synth_set_velocity_mode) {
+      mirrorWasm.synth_set_velocity_mode(mirrorCtx, mode);
+    }
+    renewVelocityLease();
   }
 
   function maybeAutoConnect() {
@@ -344,7 +388,10 @@
         reconcileDevices();
       };
       reconcileDevices();
-      setInterval(reconcileDevices, 1000);
+      setInterval(() => {
+        reconcileDevices();
+        renewVelocityLease();
+      }, 1000);
     } catch (_) {
       setStatus("bad", "MIDI");
     }
@@ -496,6 +543,7 @@
   const knobsRow = document.getElementById("knobsRow");
   const manualSelect = document.getElementById("manualSelect");
   const manualSegBar = document.getElementById("manualSegBar");
+  const velocitySegBar = document.getElementById("velocitySegBar");
   const splitPointGroup = document.getElementById("splitPointGroup");
   const splitNoteSelect = document.getElementById("splitNoteSelect");
   const invertYToggle = document.getElementById("invertYToggle");
@@ -844,7 +892,9 @@
           if (e.data.type === "ready") {
             soundReady = true;
             updateAudioLed();
-            sendMidiToWorklet(0xb0, 11, liveCcMsb);
+            // Only a bellows that has moved: an initial 0 would silence the
+            // loudness mode, whose resting bellows is full.
+            if (liveCcMsb > 0) sendMidiToWorklet(0xb0, 11, liveCcMsb);
           } else if (e.data.type === "error") {
             if (audioLed) audioLed.className = "led bad";
           }
@@ -865,6 +915,9 @@
           }
           if (mirrorWasm.synth_set_keyboard_mode) {
             mirrorWasm.synth_set_keyboard_mode(mirrorCtx, isPianistSplit ? 1 : 0);
+          }
+          if (mirrorWasm.synth_set_velocity_mode) {
+            mirrorWasm.synth_set_velocity_mode(mirrorCtx, velocityMode);
           }
           if (mirrorWasm.synth_set_split_note) {
             mirrorWasm.synth_set_split_note(mirrorCtx, currentSplitNote | 0);
@@ -892,7 +945,7 @@
         node.port.postMessage({
           type: "init-wasm",
           wasmBytes,
-          tableMode: false,
+          velocityMode,
           versionId: activeVersionId,
           keyboardMode: isPianistSplit ? 1 : 0,
           splitNote: currentSplitNote,
@@ -1145,12 +1198,16 @@
     }
 
     const ratio = yRatioFromKeyEvent(keyEl, clientY);
-    const velocity = Math.max(1, Math.min(127, Math.round(1 + ratio * 126)));
-    const noteCc = Math.max(8, Math.min(127, Math.round(ratio * 127)));
+    // One intensity from the click height, sent both as velocity and as
+    // Polyphonic Key Pressure (0xA0), so that each multi-touch key has its own
+    // level and the key sounds the same whatever "Velocity sets" says: in
+    // loudness mode the velocity sets the level, in attack & release mode the
+    // pressure does, and either way the velocity shapes the attack.
+    const velocity = Math.max(8, Math.min(127, Math.round(ratio * 127)));
+    const noteCc = velocity;
 
     keyEl.dataset.perNoteTouch = "1";
     sendMidiToWorklet(statusOn, midi, velocity);
-    // Send MPE / Polyphonic Key Pressure (0xA0) so each multi-touch key has its own independent intensity
     sendMidiToWorklet(statusPolyAftertouch, midi, noteCc);
 
     const visualY = invertYToggle && invertYToggle.checked ? 1.0 - ratio : ratio;
@@ -1475,6 +1532,13 @@
         sendAllNotesOff();
         buildInteractivePiano();
       });
+    });
+  }
+
+  // A manual choice holds until the next Bandolibre pairing or unpairing.
+  if (velocitySegBar) {
+    velocitySegBar.querySelectorAll(".seg-btn").forEach((btn) => {
+      btn.addEventListener("click", () => setVelocityMode(+btn.dataset.velocity));
     });
   }
 

@@ -14,7 +14,7 @@ flowchart TD
     end
 
     subgraph Core["crates/synth-core (Pure Rust, no_std-friendly)"]
-        MIDI["MIDI & Control Processor\n(Note On/Off, Velocity, CC#11, Table Mode)"]
+        MIDI["MIDI & Control Processor\n(Note On/Off, Velocity Mode, CC#11, CC#64)"]
         Bellows["Bellows & Manifold Model\n(Pressure Smoother, Chamber Drop)"]
         VoiceMgr["Polyphonic Voice Manager\n(Up to 16 Voices / 32 Reeds)"]
         ReedDSP["Coupled Free-Reed Engine\n(8' + 4' Cantilever ODE + Orifice Flow)"]
@@ -80,26 +80,38 @@ The Bandolibre firmware transmits:
    - **Overlapping Octave (`C4 .. B4`, `MIDI 60..=71`)**: Exists on **both** keyboards. In `KeyboardMode::DualChannelBandolibre` (default), notes in `C4..B4` played on Channel 1 vs Channel 2 produce their respective manual's distinct tone and stereo position, and can even be played on both channels simultaneously (allocating two independent voices `(note, Hand::LeftBajos)` and `(note, Hand::RightCantabile)`).
    - **Pianist Split Mode (`KeyboardMode::PianistSplit`)**: For pianists using the unified single-keyboard view or a standard 1-channel MIDI piano controller, incoming notes on any channel are split at `split_note` (default `C4 = 60`), routing `< split_note` to `Hand::LeftBajos` (Left tone & pan) and `>= split_note` to `Hand::RightCantabile` (Right tone & pan).
 2. **`CC#11` (Expression, 0–127, or 14-bit with `CC#43` if enabled)**: Continuous measurement of the bellows blade deflection.
-3. **`Note On` (`0x90`/`0x91`, `note`, `velocity`)**: Sent when a Hall-effect button crosses its actuation threshold. On the Bandolibre, `velocity` reflects the bellows blade state at the instant of key depression (or a fixed constant in *Table Mode*).
-4. **`Note Off` (`0x80`/`0x81`, `note`, `release_velocity`)**: Sent when the button is released.
+3. **`Note On` (`0x90`/`0x91`, `note`, `velocity`)**: Sent when a Hall-effect button crosses its actuation threshold. On the Bandolibre, `velocity` depends on the firmware's "Note velocity from" setting (`velocity_source`): **Bellows**, the bellows blade state at the instant of key depression (default), or **Key speed**, the time the key takes to cross its travel span, mapped through a configurable curve. A key already held when the bellows starts moving sends a fixed low `deferred_velocity`; *Table Mode* sends a fixed constant. While bandopm's web page is in *Attack & release* mode, it holds the firmware's velocity lease (`SYSEX_MSG_VELOCITY_LEASE = 0x0C`, renewed every second, lapsing 2 s after the last renewal): the Bandolibre switches "Note velocity from" to *Key speed* (live, not saved) when the lease starts, and restores the previous setting when it lapses, announcing both changes so its configuration tool shows them.
+4. **`Note Off` (`0x80`/`0x81`, `note`, `release_velocity`)**: Sent when the button is released. In *Key speed* mode, `release_velocity` is the speed the key rose at; a note cut by the bellows reaching neutral sends `release_neutral_velocity`; otherwise 64.
 5. **Polyphonic Key Pressure / Aftertouch (`0xA0`/`0xA1`, `note`, `pressure`)**: Per-note expression pressure override (`MidiEvent::PolyPressure`) smoothed at audio rate per voice, enabling independent per-finger dynamic intensity on multi-touch screens and MPE controllers without flickering shared `CC#11`.
 6. **Bandolibre SysEx Bellows Direction (`SYSEX_MSG_BELLOWS_DIRECTION = 0x05`)**: 7-bit-safe Bandolibre SysEx framing (`F0 7D 42 4C ... F7`) reporting push (`DIR_CLOSING`) vs. pull (`DIR_OPENING`) bellows direction for visual *Fueye* telemetry.
 
 ### 3.2 Reconciling `Note On` Velocity and Continuous `CC#11`
-In a physical bandoneon, button depression opens a mechanical **pallet valve** (*zapatilla*), while the bellows supply the **reservoir pressure** $P_{\text{bellows}}(t)$. We decouple these two physical actions while honoring both MIDI signals:
+In a physical bandoneon, button depression lifts a mechanical **pallet valve** (*zapatilla*), while the bellows supply the **reservoir pressure** $P_{\text{bellows}}(t)$. The engine keeps the two apart, and a **velocity mode** (`VelocityMode`, `MidiEvent::SetVelocityMode`) says what note velocity sets:
+
+| Mode | Loudness from | Velocity sets | For |
+|---|---|---|---|
+| `Articulation` (*Attack & release*, engine default) | `CC#11`/`CC#43`, or a note's PolyPressure | how fast the pallet opens (note-on) and closes (note-off) | a Bandolibre in *Key speed* mode, breath and expression controllers |
+| `Loudness` | note-on velocity, as the note's own pressure $v^{\gamma}$, scaled by `CC#11` when sent | the same pallet times, plus the level | piano keyboards |
+
+Setting a mode puts the bellows at its resting level until the next `CC#11`: closed for `Articulation`, full for `Loudness` (so a keyboard with no expression pedal plays at its velocities). In `Loudness` mode the sustain pedal (`CC#64`) holds note-offs until it lifts. The web page picks `Loudness` by default and `Articulation` while a Bandolibre is paired; the standalone build does the same from its `-m` port match, or takes `--velocity`.
 
 1. **Bellows Pressure State $P_{\text{bellows}}(t)$**:
    - Continuously driven by `CC#11` mapped through a calibrated nonlinear curve:
      $$P_{\text{target}} = P_{\max} \cdot \left(\frac{\text{CC11}}{127}\right)^{\gamma}$$
-     where $\gamma \approx 1.3\text{–}1.6$ provides fine resolution at low dynamics (*ppp*) and high ceiling for *marcato* peaks.
-   - Smoothed at audio rate via an asymmetric one-pole filter ($\tau_{\text{attack}} \approx 2\text{ ms}$, $\tau_{\text{release}} \approx 5\text{ ms}$) to eliminate MIDI quantization steps without blunting sharp bellows accents.
-   - **Initial Attack Boost from `Note On` Velocity**: Because USB-MIDI `CC#11` polling and `Note On` messages can arrive within a few milliseconds of each other during a fast *marcato* stab, if a `Note On` arrives with high `velocity` while `CC#11` is still ramping up, `velocity` injects a short transient pressure impulse into the note's local valve aperture and pressure estimate.
-2. **Pallet Valve Aperture $A_{\text{valve}}(t) \in [0, 1]$**:
-   - Triggered by `Note On` / `Note Off`.
-   - The rate at which $A_{\text{valve}}(t)$ ramps from $0 \to 1$ (and $1 \to 0$) is modulated by the `Note On` / `Note Off` velocity, simulating a fast finger snap vs. a gradual key depression.
-   - Also triggers the **mechanical pallet click** generator scaled by velocity.
-3. **Table Mode Support (Practice without Bellows)**:
-   - When the user activates *Table Mode* (either on the Bandolibre or via a toggle in the synth UI when `CC#11` stays at `0` while `Note On` has `velocity > 0`), the synth automatically derives a synthetic bellows pressure envelope from `Note On` velocity so notes remain playable without moving the bellows.
+     with $\gamma$ = `bellows_curve_gamma`, for fine resolution at low dynamics (*ppp*) and a high ceiling for *marcato* peaks.
+   - Smoothed at audio rate via an asymmetric one-pole filter (`bellows_attack_ms` 2.5 ms, `bellows_release_ms` 7 ms) to eliminate MIDI quantization steps without blunting sharp bellows accents.
+   - Up to `v4`, a high `Note On` velocity also adds a short pressure boost to the shared bellows ($0.06\,v^3$, 18 ms). `v5` drops it: one key's speed must not raise the pressure of every sounding note.
+2. **Pallet (`v5`)**: velocity is the key's speed, so it sets only how fast the pallet moves; the reeds respond to the pressure that gets through it.
+   - **Lift** $L(t) \in [0, 1]$ moves at constant speed, from 0 to 1 over $T_{\text{open}}(v)$ after `Note On`, and back over $T_{\text{close}}(v_{\text{rel}})$ after `Note Off`: the key's travel time. The Bandolibre maps the key's speed linearly to velocity, and a travel's time is inverse to its speed, so $1/T(v) = 1/T_{\text{slow}} + \frac{v - 1}{126}\,(1/T_{\text{fast}} - 1/T_{\text{slow}})$, between `pallet_open_fast_ms` (velocity 127) and `pallet_open_slow_ms` (velocity 1), and likewise `pallet_close_fast_ms` / `pallet_close_slow_ms`. The defaults are the factory key travels: 500 ADC counts at 1500 to 50 counts per 10 ms going down (3.3–100 ms), 200 counts at 800 to 20 going up (2.5–100 ms). Most of the velocity range is fast keys: velocity 64 lifts in about 6.5 ms, and only slow presses get a soft, swelling start. These times are not tuned: the eval cannot see them.
+   - **Flow resistance**: the pallet gap and the reed slot are two orifices in series, flow $\propto$ area $\times \sqrt{\Delta p}$, so the reed chamber (*celda*) gets
+     $$\frac{p_{\text{cell}}}{p_{\text{bellows}}} = \frac{L^2 (1 + r^2)}{L^2 + r^2}$$
+     where $r$ is the reed slot area over the open pallet area (`pallet_slot_ratio` at C4, shrinking by `pallet_slot_ratio_oct` per octave up: bass reeds have larger slots). Almost nothing gets through while the gap is a slit, then the pressure rises steeply and saturates long before full lift.
+   - **Celda filling**: $p_{\text{cell}}$ follows that through a one-pole lag (`celda_fill_ms` at C4, shrinking by `celda_fill_oct` per octave up).
+   - **Note dependence** follows: a bass note's larger $r$ and celda take more of the lift and more time to fill, so its attack is softer than a treble note's at the same velocity; the reeds then add their own pitch-dependent rise, tip weight, 8'/4' inertia and pressure-dependent speed.
+   - **Air jet hiss** through the half-open gap: the gap's flow times the drop across it, $L\,(1 - p_{\text{cell}}/p_{\text{bellows}})$, scaled by `pallet_jet_gain`; it peaks around $L \approx r$ and vanishes once open, so a fast opening gives a short burst and a slow one a longer breath.
+   - The onset transients (vortex burst, staccato chiff, staged 8'→4' attack) scale with the opening speed, $T_{\text{open}}(127) / T_{\text{open}}(v)$. The pallet click and the zapatilla thump scale with velocity: they are impacts, not airflow.
+   - Up to `v4`, the aperture is instead a one-pole whose time constant shrinks with velocity, the reed sees $p \times A$, and velocity also raises the 4' octave's weight for the whole note.
+3. **Table Mode** is the Bandolibre's own: on the table it sends a fixed velocity and pins `CC#11`. The engine has no table mode of its own; a keyboard without bellows uses `Loudness`.
 
 ---
 

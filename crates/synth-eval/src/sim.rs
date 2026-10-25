@@ -44,6 +44,25 @@ impl GoldenSampleEntry {
     }
 }
 
+/// How long the recording takes to fall from half its peak to a tenth of it after the peak,
+/// in ms (10 ms resolution, at least 10 ms): how fast the note was stopped.
+fn release_fall_ms(env_10ms: &[f32]) -> f32 {
+    let Some((peak_i, &peak)) = env_10ms
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+    else {
+        return 30.0;
+    };
+    let after = &env_10ms[peak_i..];
+    let half = after.iter().position(|&e| e < 0.5 * peak);
+    let tenth = after.iter().position(|&e| e < 0.1 * peak);
+    match (half, tenth) {
+        (Some(h), Some(t)) if t >= h => ((t - h) as f32 * 10.0).max(10.0),
+        _ => 30.0,
+    }
+}
+
 /// Simulates a single note on `SynthEngine` using **Continuous Envelope Inversion** from the
 /// golden sample's `AcousticFeatures` and returns the synthesized `AcousticFeatures`
 /// (and optionally the rendered audio buffer).
@@ -66,15 +85,42 @@ pub fn simulate_and_extract(
         _ => 0.58,
     };
 
-    // On Bandolibre hardware, Note On velocity reflects the initial bellows blade attack rate:
-    // fast staccato or rapid attacks produce higher velocity than slow 250ms fade-in swells.
-    let attack_speed_norm = (45.0 / gold_feat.attack_rise_ms.max(15.0)).clamp(0.18, 1.25);
-    let vel_f = if is_stacc {
-        (55.0 + 62.0 * base_dyn_norm * attack_speed_norm.min(1.0)).clamp(32.0, 124.0)
-    } else {
-        (24.0 + 78.0 * base_dyn_norm * attack_speed_norm).clamp(18.0, 118.0)
+    // Velocities as a Bandolibre in key-speed mode would send them, with the synth in
+    // `VelocityMode::Articulation`: the key's speed, here inferred from how fast the recording
+    // starts and stops. From v5 the synth turns velocity into the key's travel time, inverse to
+    // its speed, which the Bandolibre maps linearly to velocity (factory settings: 3.3..100 ms
+    // down, 2.5..100 ms up). The key time is taken as the recording's rise or fall minus
+    // REED_MS for the reed's own onset; it is only an estimate, since the eval also replays the
+    // recording's attack as bellows pressure. The times are fixed here, not read from the
+    // preset, so that the targets do not move with it. Before v5 velocity also stood for the
+    // bellows level, so it keeps its old proxy, which grows with the dynamic marking.
+    const REED_MS: f32 = 15.0;
+    let key_velocity = |time_ms: f32, fast_ms: f32, slow_ms: f32, lo: f32, hi: f32| -> u8 {
+        let t = (time_ms - REED_MS).clamp(fast_ms, slow_ms);
+        let v = 1.0 + 126.0 * (1.0 / t - 1.0 / slow_ms) / (1.0 / fast_ms - 1.0 / slow_ms);
+        v.clamp(lo, hi).round() as u8
     };
-    let vel = vel_f as u8;
+    let vel = if preset.version.use_v5_vivo() {
+        if is_stacc {
+            key_velocity(gold_feat.attack_rise_ms, 3.3, 100.0, 1.0, 127.0)
+        } else {
+            // A sustained note's slow start is the bellows swelling (CC#11), not the key.
+            key_velocity(gold_feat.attack_rise_ms, 3.3, 100.0, 40.0, 100.0)
+        }
+    } else {
+        let attack_speed_norm = (45.0 / gold_feat.attack_rise_ms.max(15.0)).clamp(0.18, 1.25);
+        let vel_f = if is_stacc {
+            (55.0 + 62.0 * base_dyn_norm * attack_speed_norm.min(1.0)).clamp(32.0, 124.0)
+        } else {
+            (24.0 + 78.0 * base_dyn_norm * attack_speed_norm).clamp(18.0, 118.0)
+        };
+        vel_f as u8
+    };
+    let release_vel = if preset.version.use_v5_vivo() {
+        key_velocity(release_fall_ms(&gold_feat.env_10ms), 2.5, 100.0, 1.0, 127.0)
+    } else {
+        72
+    };
 
     let step_10ms = (sample_rate as usize / 100).max(1);
     let sub_steps = 5usize; // 2 ms control interpolation resolution (96 samples at 48 kHz)
@@ -137,7 +183,7 @@ pub fn simulate_and_extract(
                 if is_stacc && step >= onset_step + 14 && norm_shape < 0.25 {
                     engine.handle_midi_event(MidiEvent::NoteOff {
                         note: entry.midi_note,
-                        release_velocity: 72,
+                        release_velocity: release_vel,
                         hand,
                     });
                     note_released = true;

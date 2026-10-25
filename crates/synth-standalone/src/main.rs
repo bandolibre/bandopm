@@ -10,7 +10,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use synth_core::{BandoneonPreset, Hand, MidiEvent, SynthEngine, SynthVersion};
+use synth_core::{BandoneonPreset, Hand, MidiEvent, SynthEngine, SynthVersion, VelocityMode};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -50,9 +50,11 @@ struct Cli {
     #[arg(long)]
     version: Option<String>,
 
-    /// Enable Table Mode (allows playing notes using Note On velocity without moving the bellows / CC#11)
-    #[arg(long)]
-    table_mode: bool,
+    /// What note velocity sets: `articulation` (attack and release; loudness from CC#11, for a
+    /// Bandolibre in key-speed mode) or `loudness` (for a piano keyboard). Default: articulation
+    /// when the MIDI device is a Bandolibre, loudness otherwise.
+    #[arg(long, value_parser = ["articulation", "loudness"])]
+    velocity: Option<String>,
 
     /// Run a self-test polyphonic tango chord + bellows swell and write to the specified WAV path
     #[arg(long)]
@@ -175,9 +177,11 @@ fn main() -> Result<()> {
     let running = Arc::new(AtomicBool::new(true));
 
     // 1. Open and bind ALSA Sequencer MIDI listener by device name
+    let mut bandolibre_paired = false;
     match AlsaSeqMidiListener::open_and_bind(&cli.midi_device) {
         Ok((mut listener, matched_port)) => {
             if let Some(port) = matched_port {
+                bandolibre_paired = port.display_name().to_lowercase().contains("bandolibre");
                 println!(
                     "[synth-standalone] Bound to MIDI device: {}",
                     port.display_name()
@@ -222,9 +226,14 @@ fn main() -> Result<()> {
 
     // 3. Real-time polyphonic synthesis loop (zero allocations)
     let mut engine = SynthEngine::new(cli.sample_rate as f32, preset);
-    if cli.table_mode {
-        engine.handle_midi_event(MidiEvent::SetTableMode(true));
-    }
+    let velocity_mode = match cli.velocity.as_deref() {
+        Some("loudness") => VelocityMode::Loudness,
+        Some(_) => VelocityMode::Articulation,
+        None if bandolibre_paired => VelocityMode::Articulation,
+        None => VelocityMode::Loudness,
+    };
+    engine.set_velocity_mode(velocity_mode);
+    println!("[synth-standalone] Velocity sets: {:?}", velocity_mode);
 
     let n_frames = cli.buffer_frames.max(32);
     let mut left = vec![0.0f32; n_frames];

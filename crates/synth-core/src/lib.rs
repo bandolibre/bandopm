@@ -18,7 +18,7 @@ pub use body::BodyResonator;
 pub use post::PostProcessor;
 pub use preset::{
     BandoneonPreset, BodyModeParam, Hand, KeyboardMode, ManualScalingParams, ResolvedNoteParams,
-    SynthVersion,
+    SynthVersion, VelocityMode,
 };
 pub use voice::BandoneonVoice;
 
@@ -50,8 +50,10 @@ pub enum MidiEvent {
     ControlChange11(u8),
     /// High-resolution continuous expression in `[0.0, 1.0]`.
     ExpressionNormalized(f32),
-    /// Enable/disable Table Mode (practice without moving bellows).
-    SetTableMode(bool),
+    /// Sustain pedal (CC#64) down or up. It holds note-offs in `VelocityMode::Loudness` only.
+    SustainPedal(bool),
+    /// Select what note velocity sets (`Articulation` vs `Loudness`).
+    SetVelocityMode(VelocityMode),
     /// Select keyboard/channel routing mode (`DualChannelBandolibre` vs `PianistSplit`).
     SetKeyboardMode(KeyboardMode),
     /// Set split MIDI note (`36..=96`, default `60 = C4`) used in `KeyboardMode::PianistSplit`.
@@ -73,6 +75,8 @@ pub struct SynthEngine {
     last_total_flow: f32,
     event_counter: u64,
     cc11_msb: u8,
+    velocity_mode: VelocityMode,
+    sustain_down: bool,
     keyboard_mode: KeyboardMode,
     split_note: u8,
     /// Frequency of A4 in Hz for the equal-temperament scale (applies to notes started afterwards).
@@ -109,6 +113,8 @@ impl SynthEngine {
             last_total_flow: 0.0,
             event_counter: 0,
             cc11_msb: 0,
+            velocity_mode: VelocityMode::Articulation,
+            sustain_down: false,
             keyboard_mode: KeyboardMode::DualChannelBandolibre,
             split_note: 60,
             reference_hz: 440.0,
@@ -165,6 +171,39 @@ impl SynthEngine {
     #[inline]
     pub fn set_keyboard_mode(&mut self, mode: KeyboardMode) {
         self.keyboard_mode = mode;
+    }
+
+    #[inline]
+    pub fn velocity_mode(&self) -> VelocityMode {
+        self.velocity_mode
+    }
+
+    /// Selects what note velocity sets, and puts the bellows at the mode's resting level until
+    /// the next CC#11: full for `Loudness`, so that a keyboard without expression plays at its
+    /// velocities, and closed for `Articulation`.
+    pub fn set_velocity_mode(&mut self, mode: VelocityMode) {
+        self.velocity_mode = mode;
+        self.bellows.set_cc11(match mode {
+            VelocityMode::Loudness => 127,
+            VelocityMode::Articulation => 0,
+        });
+        if mode == VelocityMode::Articulation {
+            self.set_sustain(false);
+        }
+    }
+
+    /// Sustain pedal down holds note-offs (`VelocityMode::Loudness` only); up releases them.
+    fn set_sustain(&mut self, down: bool) {
+        self.sustain_down = down && self.velocity_mode == VelocityMode::Loudness;
+        if self.sustain_down {
+            return;
+        }
+        for v in &mut self.voices {
+            if v.active && v.key_down && v.sustained {
+                let rel = v.sustained_release_velocity;
+                v.trigger_note_off(rel, &self.preset, self.sample_rate);
+            }
+        }
     }
 
     /// Sets the pitch of A4 in Hz (clamped to `415..=466`, i.e. about a semitone either side of 440).
@@ -246,6 +285,9 @@ impl SynthEngine {
         self.body.reset();
         self.post.reset();
         self.last_total_flow = 0.0;
+        self.sustain_down = false;
+        // The fresh bellows is closed: reapply the mode's resting level.
+        self.set_velocity_mode(self.velocity_mode);
     }
 
     /// Infers the default bandoneon manual (`Hand`) from MIDI note if not specified.
@@ -301,7 +343,16 @@ impl SynthEngine {
                     });
                     return;
                 }
-                self.bellows.notify_note_on(velocity);
+                if !self.preset.version.use_v5_vivo() {
+                    self.bellows.notify_note_on(velocity);
+                }
+                let velocity_pressure = match self.velocity_mode {
+                    VelocityMode::Loudness => {
+                        let gamma = self.preset.bellows_curve_gamma.clamp(0.5, 3.0);
+                        ((velocity.min(127) as f32) / 127.0).powf(gamma)
+                    }
+                    VelocityMode::Articulation => -1.0,
+                };
                 let idx = self.allocate_voice(note, hand);
                 self.voices[idx].trigger_note_on(
                     note,
@@ -311,6 +362,7 @@ impl SynthEngine {
                     &self.preset,
                     self.event_counter,
                     self.reference_hz,
+                    velocity_pressure,
                 );
             }
             MidiEvent::NoteOff {
@@ -318,13 +370,16 @@ impl SynthEngine {
                 release_velocity,
                 hand,
             } => {
+                let sustain = self.sustain_down;
                 for v in &mut self.voices {
                     if v.active && v.key_down && v.midi_note == note && v.hand == hand {
-                        v.trigger_note_off(release_velocity, &self.preset);
+                        if sustain {
+                            v.sustained = true;
+                            v.sustained_release_velocity = release_velocity;
+                        } else {
+                            v.trigger_note_off(release_velocity, &self.preset, self.sample_rate);
+                        }
                     }
-                }
-                if !self.voices.iter().any(|v| v.active && v.key_down) {
-                    self.bellows.notify_all_notes_off();
                 }
             }
             MidiEvent::PolyPressure {
@@ -345,8 +400,11 @@ impl SynthEngine {
             MidiEvent::ExpressionNormalized(expr) => {
                 self.bellows.set_expression_norm(expr);
             }
-            MidiEvent::SetTableMode(enabled) => {
-                self.bellows.table_mode = enabled;
+            MidiEvent::SustainPedal(down) => {
+                self.set_sustain(down);
+            }
+            MidiEvent::SetVelocityMode(mode) => {
+                self.set_velocity_mode(mode);
             }
             MidiEvent::SetKeyboardMode(mode) => {
                 self.keyboard_mode = mode;
@@ -361,8 +419,9 @@ impl SynthEngine {
                 for v in &mut self.voices {
                     v.active = false;
                     v.key_down = false;
+                    v.sustained = false;
                 }
-                self.bellows.notify_all_notes_off();
+                self.sustain_down = false;
                 self.body.reset();
                 self.post.reset();
             }
@@ -409,6 +468,7 @@ impl SynthEngine {
                 let val14 = ((msb << 7) | lsb) as f32 / 16383.0;
                 self.handle_midi_event(MidiEvent::ExpressionNormalized(val14));
             }
+            0xB0 if data1 == 64 => self.handle_midi_event(MidiEvent::SustainPedal(data2 >= 64)),
             0xB0 if data1 == 120 || data1 == 123 => {
                 self.handle_midi_event(MidiEvent::AllNotesOff)
             }
@@ -960,6 +1020,159 @@ mod tests {
         synth.render(&mut left, &mut right);
         let cleared_rms = (left.iter().map(|x| x * x).sum::<f32>() / 128.0).sqrt();
         assert!(cleared_rms < 1e-5, "Expected silence after AllNotesOff, got {cleared_rms}");
+    }
+
+    fn rms(buf: &[f32]) -> f32 {
+        (buf.iter().map(|x| x * x).sum::<f32>() / buf.len().max(1) as f32).sqrt()
+    }
+
+    /// Renders one held A4 for 0.5 s after `setup`, and returns the last 0.25 s.
+    fn held_note(setup: impl Fn(&mut SynthEngine), velocity: u8) -> Vec<f32> {
+        let mut synth = SynthEngine::new(48000.0, BandoneonPreset::default_bandoneon());
+        setup(&mut synth);
+        synth.handle_raw_midi(0x91, 69, velocity);
+        let mut buf = vec![0.0f32; 24000];
+        synth.render_mono(&mut buf);
+        buf[12000..].to_vec()
+    }
+
+    #[test]
+    fn test_loudness_mode_velocity_sets_a_steady_level() {
+        let loudness = |s: &mut SynthEngine| s.set_velocity_mode(VelocityMode::Loudness);
+        let soft = held_note(loudness, 40);
+        let loud = held_note(loudness, 120);
+        assert!(
+            rms(&loud) > 1.5 * rms(&soft),
+            "velocity should set the level: soft={}, loud={}",
+            rms(&soft),
+            rms(&loud)
+        );
+        // Held: the two halves of the last 0.25 s stay within the v5 sustain pulsation.
+        let (a, b) = loud.split_at(loud.len() / 2);
+        assert!(rms(a) > 0.01 && (rms(a) / rms(b) - 1.0).abs() < 0.2);
+    }
+
+    #[test]
+    fn test_articulation_mode_level_ignores_velocity() {
+        let bellows = |s: &mut SynthEngine| s.handle_raw_midi(0xB1, 11, 100);
+        let soft = held_note(bellows, 20);
+        let hard = held_note(bellows, 127);
+        assert!(rms(&soft) > 0.01);
+        assert!(
+            (rms(&hard) / rms(&soft) - 1.0).abs() < 0.03,
+            "sustained level should not depend on velocity: {} vs {}",
+            rms(&soft),
+            rms(&hard)
+        );
+        // Without CC#11 there is no pressure, whatever the velocity.
+        assert!(rms(&held_note(|_| {}, 127)) < 1e-3);
+    }
+
+    #[test]
+    fn test_articulation_velocity_leaves_other_notes_alone() {
+        // A left-hand note is held; a right-hand note starts at velocity 1 or 127. With full
+        // stereo width each hand has its own channel, so the left channel carries only the
+        // held note, which must not change.
+        let left_after = |velocity: u8| {
+            let mut synth = SynthEngine::new(48000.0, BandoneonPreset::default_bandoneon());
+            synth.set_stereo_width(1.0);
+            synth.handle_raw_midi(0xB0, 11, 100);
+            synth.handle_raw_midi(0x90, 45, 64);
+            let (mut l, mut r) = (vec![0.0f32; 9600], vec![0.0f32; 9600]);
+            synth.render(&mut l, &mut r);
+            synth.handle_raw_midi(0x91, 76, velocity);
+            let (mut l, mut r) = (vec![0.0f32; 2400], vec![0.0f32; 2400]);
+            synth.render(&mut l, &mut r);
+            rms(&l)
+        };
+        let (soft, hard) = (left_after(1), left_after(127));
+        assert!(
+            (hard / soft - 1.0).abs() < 0.02,
+            "another note's velocity changed the held note: {soft} vs {hard}"
+        );
+    }
+
+    /// Samples until `done` holds for the one voice, ticking the engine one sample at a time.
+    fn samples_until(synth: &mut SynthEngine, done: impl Fn(&BandoneonVoice) -> bool) -> usize {
+        let mut one = [0.0f32; 1];
+        for n in 0..48000 {
+            let v = synth.voices.iter().find(|v| v.active).unwrap();
+            if done(v) {
+                return n;
+            }
+            synth.render_mono(&mut one);
+        }
+        48000
+    }
+
+    #[test]
+    fn test_pallet_times_follow_velocity() {
+        let preset = BandoneonPreset::default_bandoneon();
+        let ms = |n: usize| n as f32 / 48.0;
+        for velocity in [20u8, 64, 127] {
+            let mut synth = SynthEngine::new(48000.0, preset.clone());
+            synth.handle_raw_midi(0xB1, 11, 100);
+            synth.handle_raw_midi(0x91, 69, velocity);
+            let open = ms(samples_until(&mut synth, |v| v.pallet_lift >= 1.0));
+            let want = preset.pallet_open_ms(velocity);
+            assert!((open - want).abs() < 0.1, "open at {velocity}: {open} ms, want {want}");
+
+            synth.handle_raw_midi(0x81, 69, velocity);
+            let close = ms(samples_until(&mut synth, |v| v.pallet_lift <= 0.0));
+            let want = preset.pallet_close_ms(velocity);
+            assert!((close - want).abs() < 0.1, "close at {velocity}: {close} ms, want {want}");
+        }
+        // The ends are the key's travel times; in between, time is inverse to speed, which
+        // is linear in velocity.
+        assert!((preset.pallet_open_ms(127) - preset.pallet_open_fast_ms).abs() < 1e-3);
+        assert!((preset.pallet_open_ms(1) - preset.pallet_open_slow_ms).abs() < 1e-2);
+        let mid_speed = 0.5 * (1.0 / preset.pallet_open_fast_ms + 1.0 / preset.pallet_open_slow_ms);
+        assert!((preset.pallet_open_ms(64) - 1.0 / mid_speed).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_pallet_law_and_note_dependence() {
+        use crate::voice::pallet_fill;
+        let preset = BandoneonPreset::default_bandoneon();
+        let r = preset.resolve_note(60, Hand::RightCantabile).pallet_slot_ratio;
+        assert!(pallet_fill(0.0, r) == 0.0 && (pallet_fill(1.0, r) - 1.0).abs() < 1e-6);
+        // It rises steadily, and faster than the square of the lift, which a lone orifice
+        // would give: the slot limits the flow once the gap is wide.
+        let mut prev = 0.0;
+        for i in 1..=20 {
+            let lift = i as f32 / 20.0;
+            let fill = pallet_fill(lift, r);
+            assert!(fill > prev && fill >= lift * lift - 1e-6);
+            prev = fill;
+        }
+        assert!(pallet_fill(0.1 * r, r) < 0.02, "a slit lets almost nothing through");
+
+        // A bass note fills its celda later than a treble note at the same velocity.
+        let fill_ms = |note: u8, status: u8| {
+            let mut synth = SynthEngine::new(48000.0, preset.clone());
+            synth.handle_raw_midi(status | 0x30, 11, 100);
+            synth.handle_raw_midi(status, note, 64);
+            samples_until(&mut synth, |v| v.valve_aperture >= 0.9) as f32 / 48.0
+        };
+        let (bass, treble) = (fill_ms(38, 0x90), fill_ms(90, 0x91));
+        assert!(bass > treble, "bass {bass} ms should fill later than treble {treble} ms");
+    }
+
+    #[test]
+    fn test_sustain_pedal_holds_note_offs_in_loudness_mode_only() {
+        let held_after_release = |mode: VelocityMode| {
+            let mut synth = SynthEngine::new(48000.0, BandoneonPreset::default_bandoneon());
+            synth.set_velocity_mode(mode);
+            synth.handle_raw_midi(0xB1, 64, 127);
+            synth.handle_raw_midi(0x91, 69, 100);
+            synth.handle_raw_midi(0x81, 69, 64);
+            let held = synth.voices.iter().any(|v| v.active && v.key_down);
+            synth.handle_raw_midi(0xB1, 64, 0);
+            let after_pedal = synth.voices.iter().any(|v| v.active && v.key_down);
+            (held, after_pedal)
+        };
+        assert_eq!(held_after_release(VelocityMode::Loudness), (true, false));
+        assert_eq!(held_after_release(VelocityMode::Articulation), (false, false));
     }
 
     #[test]
