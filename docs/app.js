@@ -510,7 +510,26 @@
   let analyserR = null;
   let audioInitPromise = null;
   let soundReady = false;
+  // Settings kept across reloads (model, acoustics, keyboard; tuning has its
+  // own key). "Velocity sets" is not: it follows the connected device.
+  function loadSetting(key) {
+    try {
+      return JSON.parse(localStorage.getItem(key));
+    } catch (e) {
+      return null;
+    }
+  }
+  function saveSetting(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {}
+  }
+
   let activeVersionId = 12; // Default to v5 Vivo Expressive
+  {
+    const saved = loadSetting("bandopm-version");
+    if (SYNTH_VERSIONS.some((v) => v.id === saved)) activeVersionId = saved;
+  }
   let currentStereoWidth = 0.84;
   let currentSplitNote = 60; // C4
   const pendingMainMidi = [];
@@ -608,6 +627,12 @@
     postParams.reverbMix = (revKnob ? revKnob.val : 26) / 100.0;
     postParams.reverbSize = (romKnob ? romKnob.val : 50) / 100.0;
     postParams.reverbPredelay = (pdlKnob ? pdlKnob.val : 35) / 100.0;
+
+    saveSetting("bandopm-acoustics", {
+      preset: postPresetSelect ? postPresetSelect.value : null,
+      spatial: postParams.spatialAmount,
+      knobs: Object.fromEntries(KNOB_SPECS.map((k) => [k.id, k.val])),
+    });
 
     // Subtle binaural crossfeed scales naturally when post-processing is active
     postEnabled =
@@ -778,6 +803,23 @@
     });
   }
 
+  // The saved acoustics: the preset's name and every knob, which may have been
+  // turned away from the preset ("custom").
+  {
+    const saved = loadSetting("bandopm-acoustics");
+    if (saved && typeof saved === "object") {
+      if (postPresetSelect && [...postPresetSelect.options].some((o) => o.value === saved.preset)) {
+        postPresetSelect.value = saved.preset;
+      }
+      if (typeof saved.spatial === "number") postParams.spatialAmount = saved.spatial;
+      for (const k of KNOB_SPECS) {
+        const v = saved.knobs && saved.knobs[k.id];
+        if (typeof v === "number") k.val = Math.max(0, Math.min(100, v));
+      }
+      syncKnobsToWorklet();
+    }
+  }
+
   renderKnobs();
 
   // =========================================================================
@@ -799,6 +841,7 @@
     const v = SYNTH_VERSIONS.find((x) => x.id === Number(versionId));
     if (!v) return;
     activeVersionId = v.id;
+    saveSetting("bandopm-version", activeVersionId);
     if (workletNode) {
       workletNode.port.postMessage({ type: "set-version", versionId: v.id });
     }
@@ -1529,9 +1572,17 @@
         if (manualSelect) {
           manualSelect.value = mode;
         }
+        saveKeyboardSetting();
         sendAllNotesOff();
         buildInteractivePiano();
       });
+    });
+  }
+
+  function saveKeyboardSetting() {
+    saveSetting("bandopm-keyboard", {
+      mode: manualSelect ? manualSelect.value : "dual",
+      splitNote: currentSplitNote,
     });
   }
 
@@ -1544,6 +1595,7 @@
 
   if (manualSelect) {
     manualSelect.addEventListener("change", () => {
+      saveKeyboardSetting();
       sendAllNotesOff();
       buildInteractivePiano();
     });
@@ -1552,9 +1604,30 @@
   if (splitNoteSelect) {
     splitNoteSelect.addEventListener("change", (e) => {
       currentSplitNote = Number(e.target.value) || 60;
+      saveKeyboardSetting();
       sendAllNotesOff();
       buildInteractivePiano();
     });
+  }
+
+  // The saved keyboard layout and split point, applied before the keyboard is
+  // first drawn and before the synth starts (which reads them).
+  {
+    const saved = loadSetting("bandopm-keyboard");
+    if (saved && typeof saved === "object") {
+      if (manualSelect && [...manualSelect.options].some((o) => o.value === saved.mode)) {
+        manualSelect.value = saved.mode;
+        if (manualSegBar) {
+          manualSegBar.querySelectorAll(".seg-btn").forEach((b) => {
+            b.classList.toggle("active", b.dataset.mode === saved.mode);
+          });
+        }
+      }
+      if (splitNoteSelect && [...splitNoteSelect.options].some((o) => Number(o.value) === saved.splitNote)) {
+        splitNoteSelect.value = String(saved.splitNote);
+        currentSplitNote = saved.splitNote;
+      }
+    }
   }
 
   buildInteractivePiano();
