@@ -265,7 +265,7 @@
   function updateConfigureButton() {
     if (!configureBtn) return;
     const device = activeKey && collectDevices().find((d) => d.key === activeKey);
-    configureBtn.style.display = isBandolibre(device) ? "" : "none";
+    configureBtn.hidden = !isBandolibre(device);
   }
 
   function updateStatus() {
@@ -873,15 +873,22 @@
   // =========================================================================
   // 4b. Temperament (equal temperament, A4 reference)
   // =========================================================================
-  const temperamentSelect = document.getElementById("temperamentSelect");
+  const tuningSegBar = document.getElementById("tuningSegBar");
+  const tuningButtons = tuningSegBar ? [...tuningSegBar.querySelectorAll(".seg-btn")] : [];
   let referenceHz = 440;
   try {
     const saved = Number(localStorage.getItem("bandopm-reference-hz"));
-    if (temperamentSelect && [...temperamentSelect.options].some((o) => Number(o.value) === saved)) {
+    if (tuningButtons.some((b) => Number(b.dataset.hz) === saved)) {
       referenceHz = saved;
     }
   } catch (e) {}
-  if (temperamentSelect) temperamentSelect.value = String(referenceHz);
+
+  function renderTuning() {
+    tuningButtons.forEach((b) => {
+      b.classList.toggle("active", Number(b.dataset.hz) === referenceHz);
+    });
+  }
+  renderTuning();
 
   function applyReferenceHz() {
     if (workletNode) {
@@ -892,16 +899,17 @@
     }
   }
 
-  if (temperamentSelect) {
-    temperamentSelect.addEventListener("change", (e) => {
+  tuningButtons.forEach((b) => {
+    b.addEventListener("click", () => {
       ensureAudioStarted();
-      referenceHz = Number(e.target.value);
+      referenceHz = Number(b.dataset.hz);
+      renderTuning();
       try {
         localStorage.setItem("bandopm-reference-hz", String(referenceHz));
       } catch (err) {}
       applyReferenceHz();
     });
-  }
+  });
 
   // =========================================================================
   // 5. WebAudio Initialization & Bellows CC#11 Updates
@@ -1778,6 +1786,7 @@
   function drawFrequencySpectrum() {
     requestAnimationFrame(drawFrequencySpectrum);
     if (!canvas || !canvasCtx) return;
+    if (canvas.offsetParent === null) return; // hidden on narrow windows
 
     const w = canvas.width;
     const h = canvas.height;
@@ -1859,8 +1868,18 @@
   // =========================================================================
   // 8. Progressive Web App (PWA) Service Worker & Install Prompt
   // =========================================================================
+  // The install button keeps its place while hidden, so it can appear when
+  // beforeinstallprompt fires without moving the Model menu. Where it can
+  // never appear (no install prompt, as in Firefox and Safari, or already
+  // running as the installed app), it is removed before the first paint.
   const installPwaBtn = document.getElementById("btn-install-pwa");
   let deferredInstallPrompt = null;
+
+  const canOfferInstall = "onbeforeinstallprompt" in window
+    && !window.matchMedia("(display-mode: standalone)").matches;
+  if (installPwaBtn && !canOfferInstall) {
+    installPwaBtn.hidden = true;
+  }
 
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
@@ -1872,7 +1891,7 @@
     e.preventDefault();
     deferredInstallPrompt = e;
     if (installPwaBtn) {
-      installPwaBtn.style.display = "inline-flex";
+      installPwaBtn.style.visibility = "visible";
     }
   });
 
@@ -1882,14 +1901,14 @@
       deferredInstallPrompt.prompt();
       await deferredInstallPrompt.userChoice;
       deferredInstallPrompt = null;
-      installPwaBtn.style.display = "none";
+      installPwaBtn.style.visibility = "hidden";
     });
   }
 
   window.addEventListener("appinstalled", () => {
     deferredInstallPrompt = null;
     if (installPwaBtn) {
-      installPwaBtn.style.display = "none";
+      installPwaBtn.style.visibility = "hidden";
     }
   });
 

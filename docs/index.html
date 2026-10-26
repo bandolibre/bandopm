@@ -127,18 +127,18 @@
       flex: 1;
       display: flex;
       flex-direction: row;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
       gap: 8px 14px;
       min-width: 0;
     }
 
-    .topbar-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
+    /* The MIDI and Model pills do not shrink: their menus have fixed widths,
+       so a narrow bar wraps Model under MIDI instead of letting the menu
+       spill over the buttons. */
+    .topbar-controls > .pill-control {
+      flex-shrink: 0;
     }
 
     .topbar-actions {
@@ -149,13 +149,50 @@
       flex-shrink: 0;
     }
 
-    /* Strictly couple 2-line controls and vertical BandoPM to the exact same screen-width breakpoint */
-    @media (max-width: 720px) {
+    /* Two-line controls and the vertical BandoPM brand switch together, at
+       the width where the controls stop fitting on one line. The MIDI and
+       Model menus have fixed widths, so that width is known except for the
+       optional Configure and Install buttons (30px + 8px gap each). The
+       frame around the top bar is the container: each optional button that
+       takes space pads it by 38px, and the top bar takes that padding back
+       with a negative margin, so it keeps its size while the container
+       reports 38px less. One threshold then fits every set of buttons:
+       ~714px with About alone, plus 10px for wider system fonts. The
+       flex-wrap above stays as a safety net. */
+    [hidden] {
+      display: none !important;
+    }
+
+    .topbar-frame {
+      container: topbar / inline-size;
+      --optional-buttons: calc(var(--configure-slot, 0px) + var(--install-slot, 0px));
+      padding-right: var(--optional-buttons);
+    }
+
+    .topbar-frame:has(#btn-configure:not([hidden])) {
+      --configure-slot: 38px;
+    }
+
+    .topbar-frame:has(#btn-install-pwa:not([hidden])) {
+      --install-slot: 38px;
+    }
+
+    .topbar-frame > .topbar {
+      margin-right: calc(-1 * var(--optional-buttons));
+    }
+
+    @container topbar (max-width: 724px) {
+      /* One max-content column: both pills take the wider one's width, and
+         their menus absorb the difference. */
       .topbar-controls {
-        flex-direction: column;
-        align-items: flex-start;
-        justify-content: center;
+        display: grid;
+        grid-template-columns: max-content;
+        align-content: center;
         gap: 8px;
+      }
+
+      .topbar-controls > .pill-control select.apple-select {
+        flex: 1 1 auto;
       }
 
       .topbar-actions {
@@ -240,6 +277,14 @@
       color: var(--fg);
     }
 
+    /* A menu inside a pill: the pill draws the frame. */
+    .pill-control select.apple-select {
+      border: none;
+      background: transparent;
+      padding: 0 4px;
+      text-overflow: ellipsis;
+    }
+
     .pill-label {
       font-size: 0.76rem;
       color: var(--muted);
@@ -320,15 +365,42 @@
     }
 
     /* 2. Top Two-Module Strip (Frequency Spectrum + Studio Rotary Knobs) */
+    /* Acoustics never gets narrower than its knobs (about 382px); the
+       spectrum takes what is left, down to the ~190px its L/R header needs. */
     .studio-strip {
+      container-type: inline-size;
       display: grid;
-      grid-template-columns: 5fr 7fr;
+      grid-template-columns: minmax(0, 5fr) minmax(min-content, 7fr);
       gap: 14px;
     }
 
-    @media (max-width: 920px) {
-      .studio-strip {
-        grid-template-columns: 1fr;
+    /* No room beside Acoustics (382 + 14 + 190): the spectrum is dropped
+       rather than stacked above it (app.js then stops drawing it). */
+    /* Both headers as tall as the Preset menu, so "L · Bajos" lines up with
+       "Acoustics" and the graph starts level with the knobs. */
+    .studio-strip .module-header {
+      height: 30px;
+    }
+
+    /* The graph sits right under its header, like the knobs; the level
+       meters take the bottom, level with the knob values. */
+    .studio-strip > .oled-card {
+      justify-content: flex-start;
+    }
+
+    .studio-strip > .oled-card .lr-meters {
+      margin-top: auto;
+    }
+
+    @container (max-width: 590px) {
+      .studio-strip > .oled-card {
+        display: none;
+      }
+
+      /* A container query cannot restyle the strip's own columns, so
+         Acoustics spans both instead. */
+      .studio-strip > :not(.oled-card) {
+        grid-column: 1 / -1;
       }
     }
 
@@ -416,7 +488,10 @@
       grid-template-columns: repeat(5, 1fr);
       gap: 8px;
       padding-top: 2px;
-      min-height: 88px;
+      /* Fixed, not a minimum: app.js builds the knobs after the first paint,
+         and an empty row must already be their height (88px + padding) so
+         the keyboard below does not move. */
+      height: 90px;
     }
 
     .knob-item {
@@ -441,6 +516,7 @@
       font-weight: 500;
       color: #d4d4d8;
       margin-top: 2px;
+      white-space: nowrap;
     }
 
     .knob-val {
@@ -462,14 +538,23 @@
       box-shadow: 0 14px 36px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
 
-    /* Narrow windows wrap the labelled groups onto more lines. */
+    /* Notes off stays at the right end of the first line; the labelled groups
+       beside it wrap from the last one, so on a narrow window Velocity sets
+       moves to a line of its own before Keyboard does. */
     .stage-toolbar {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      white-space: nowrap;
+    }
+
+    .stage-toolbar-controls {
+      flex: 1 1 auto;
+      min-width: 0;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      justify-content: flex-start;
-      gap: 8px 14px;
-      white-space: nowrap;
+      gap: 8px 28px;
     }
 
     .segmented-bar {
@@ -1035,6 +1120,7 @@
 <body class="preload">
   <div class="app-shell">
     <!-- 1. Whisper-Quiet Top Bar -->
+    <div class="topbar-frame">
     <header class="topbar" id="topbar">
       <div class="brand">
         <span id="audioLed" class="led"></span>
@@ -1045,20 +1131,12 @@
         <div id="midiStatusPill" class="pill-control" title="WebMIDI Controller Connection">
           <span id="statusDot" class="led"></span>
           <span id="statusText" class="pill-label">MIDI</span>
-          <select id="deviceSelect" class="apple-select" aria-label="Select MIDI Device" style="border:none; background:transparent; padding:0 4px; width:172px; text-overflow:ellipsis;">
+          <select id="deviceSelect" class="apple-select" aria-label="Select MIDI Device" style="width:172px;">
             <option value="">Select MIDI…</option>
           </select>
         </div>
 
-        <div class="topbar-group">
-          <span class="pill-label">Tuning</span>
-          <select id="temperamentSelect" class="apple-select" aria-label="Select Temperament" style="width:206px;">
-            <option value="440" selected>Equal temperament 440 Hz</option>
-            <option value="442">Equal temperament 442 Hz</option>
-          </select>
-        </div>
-
-        <div class="topbar-group">
+        <div class="pill-control">
           <span class="pill-label">Model</span>
           <select id="versionSelect" class="apple-select" aria-label="Select Synthesis Model" style="width:206px;">
             <option value="12" selected>v5 — Vivo Expressive ★</option>
@@ -1079,14 +1157,14 @@
       </div>
 
       <div class="topbar-actions">
-        <button id="btn-configure" class="apple-btn icon-btn" style="display:none;" aria-label="Configure Bandolibre" title="Open the Bandolibre configuration tool in a new window">
+        <button id="btn-configure" class="apple-btn icon-btn" hidden aria-label="Configure Bandolibre" title="Open the Bandolibre configuration tool in a new window">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
 
-        <button id="btn-install-pwa" class="apple-btn icon-btn" style="display:none;" aria-label="Install App" title="Install BandoPM as a standalone app">
+        <button id="btn-install-pwa" class="apple-btn icon-btn" style="visibility:hidden;" aria-label="Install App" title="Install BandoPM as a standalone app">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 3v12" />
             <path d="m7 10 5 5 5-5" />
@@ -1103,6 +1181,7 @@
         </button>
       </div>
     </header>
+    </div>
 
     <!-- 2. Two-Module Studio Strip: Frequency Spectrum (Left) + 5 Rotary Knobs (Right) -->
     <div class="studio-strip">
@@ -1123,7 +1202,7 @@
       <div class="module-card">
         <div class="module-header">
           <span class="module-title">Acoustics</span>
-          <div style="display:flex; align-items:center; gap:8px;">
+          <div class="pill-control">
             <span class="pill-label">Preset</span>
             <select id="postPresetSelect" class="apple-select" aria-label="Select Acoustics Preset">
               <option value="milonga" selected>Salon Milonga</option>
@@ -1143,6 +1222,7 @@
     <!-- 3. Keyboard Stage with Integrated Central Bellows (Fueye) Spine -->
     <div class="keyboard-stage">
       <div class="stage-toolbar">
+        <div class="stage-toolbar-controls">
         <div class="toolbar-group">
           <span class="pill-label" id="manualSegLabel">Keyboard</span>
           <div class="segmented-bar" id="manualSegBar" role="tablist" aria-labelledby="manualSegLabel">
@@ -1152,23 +1232,6 @@
             <button type="button" class="seg-btn" data-mode="right">Cantabile</button>
           </div>
         </div>
-
-        <div class="toolbar-group"
-             title="What MIDI note velocity sets.&#10;&#10;Loudness (piano keyboards): note-on velocity sets the note's loudness and how sharply it starts; note-off velocity, how sharply it stops. CC#11 still scales the level when sent; the sustain pedal (CC#64) holds notes.&#10;&#10;Attack &amp; release (Bandolibre): CC#11, the bellows, sets the loudness; note-on and note-off velocity only set how sharply each note starts and stops. Chosen when a Bandolibre is paired, which then sends its key speed as velocity.&#10;&#10;The on-screen keyboard sounds the same either way.">
-          <span class="pill-label" id="velocitySegLabel">Velocity sets</span>
-          <div class="segmented-bar" id="velocitySegBar" role="group" aria-labelledby="velocitySegLabel">
-            <button type="button" class="seg-btn active" data-velocity="1">Loudness</button>
-            <button type="button" class="seg-btn" data-velocity="0">Attack &amp; release</button>
-          </div>
-        </div>
-
-        <!-- Hidden select kept in sync for keyboard mode logic -->
-        <select id="manualSelect" style="display:none;">
-          <option value="dual" selected>Dual</option>
-          <option value="pianist_split">Pianist Split</option>
-          <option value="left">Bajos</option>
-          <option value="right">Cantabile</option>
-        </select>
 
         <div id="splitPointGroup" style="display:none; align-items:center; gap:6px; flex-shrink:0;">
           <label for="splitNoteSelect" class="pill-label">Split</label>
@@ -1183,7 +1246,33 @@
           </select>
         </div>
 
-        <button id="btn-panic" class="apple-btn icon-btn" style="flex-shrink:0; margin-left:auto;" aria-label="Notes off" title="Notes off">
+        <div class="toolbar-group"
+             title="What MIDI note velocity sets.&#10;&#10;Loudness (piano keyboards): note-on velocity sets the note's loudness and how sharply it starts; note-off velocity, how sharply it stops. CC#11 still scales the level when sent; the sustain pedal (CC#64) holds notes.&#10;&#10;Attack &amp; release (Bandolibre): CC#11, the bellows, sets the loudness; note-on and note-off velocity only set how sharply each note starts and stops. Chosen when a Bandolibre is paired, which then sends its key speed as velocity.&#10;&#10;The on-screen keyboard sounds the same either way.">
+          <span class="pill-label" id="velocitySegLabel">Velocity sets</span>
+          <div class="segmented-bar" id="velocitySegBar" role="group" aria-labelledby="velocitySegLabel">
+            <button type="button" class="seg-btn active" data-velocity="1">Loudness</button>
+            <button type="button" class="seg-btn" data-velocity="0">Attack &amp; release</button>
+          </div>
+        </div>
+
+        <div class="toolbar-group" title="Equal temperament, with A4 at 440 Hz or 442 Hz.">
+          <span class="pill-label" id="tuningSegLabel">Tuning</span>
+          <div class="segmented-bar" id="tuningSegBar" role="group" aria-labelledby="tuningSegLabel">
+            <button type="button" class="seg-btn active" data-hz="440">440 Hz</button>
+            <button type="button" class="seg-btn" data-hz="442">442 Hz</button>
+          </div>
+        </div>
+        </div>
+
+        <!-- Hidden select kept in sync for keyboard mode logic -->
+        <select id="manualSelect" style="display:none;">
+          <option value="dual" selected>Dual</option>
+          <option value="pianist_split">Pianist Split</option>
+          <option value="left">Bajos</option>
+          <option value="right">Cantabile</option>
+        </select>
+
+        <button id="btn-panic" class="apple-btn icon-btn" style="flex-shrink:0;" aria-label="Notes off" title="Notes off">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 18V5l12-2v13" />
             <circle cx="6" cy="18" r="3" />
@@ -1302,6 +1391,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=5.18"></script>
+  <script src="app.js?v=5.22"></script>
 </body>
 </html>
