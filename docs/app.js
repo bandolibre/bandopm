@@ -375,7 +375,8 @@
 
   async function initWebMIDI() {
     if (!navigator.requestMIDIAccess) {
-      setStatus("bad", "MIDI");
+      setStatus("bad", "No MIDI");
+      showMidiHelp("unsupported");
       return;
     }
     try {
@@ -392,8 +393,17 @@
         reconcileDevices();
         renewVelocityLease();
       }, 1000);
-    } catch (_) {
-      setStatus("bad", "MIDI");
+    } catch (err) {
+      // NotAllowedError (SecurityError in older browsers): the user or a
+      // site setting refused. Anything else is the browser failing to reach
+      // the OS MIDI service, which no permission change fixes.
+      if (err && (err.name === "NotAllowedError" || err.name === "SecurityError")) {
+        setStatus("bad", "MIDI blocked");
+        showMidiHelp("denied", err);
+      } else {
+        setStatus("bad", "MIDI error");
+        if (statusText && err) statusText.title = err.message;
+      }
     }
   }
 
@@ -1907,6 +1917,78 @@
     window.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && infoModal.classList.contains("open")) {
         infoModal.classList.remove("open");
+      }
+    });
+  }
+
+  // =========================================================================
+  // 10. No Web MIDI Modal
+  // =========================================================================
+  // Two cases: "unsupported" (Safari and every iOS browser have no
+  // navigator.requestMIDIAccess) lists the browsers that work; "denied"
+  // (requestMIDIAccess rejected) explains how to allow it. The synth still
+  // plays from the on-screen keyboard, so each variant opens by itself only
+  // once per browser; the MIDI pill reopens it.
+  const MIDI_HELP_SEEN_KEY = "bandopm-midi-help-seen-";
+  const midiModal = document.getElementById("midi-modal");
+  const midiCloseBtn = document.getElementById("btn-midi-close");
+  const midiStatusPill = document.getElementById("midiStatusPill");
+
+  function currentOs() {
+    const ua = navigator.userAgent;
+    // iPadOS reports itself as a Mac; touch points tell them apart.
+    if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "ios";
+    if (/Android/.test(ua)) return "android";
+    if (/Macintosh|Mac OS X/.test(ua)) return "mac";
+    if (/Windows/.test(ua)) return "windows";
+    if (/Linux/.test(ua) && !/CrOS/.test(ua)) return "linux";
+    return "";
+  }
+
+  function showMidiHelp(reason, err) {
+    if (!midiModal) return;
+    midiModal.dataset.show = reason;
+    const os = currentOs();
+    if (os) {
+      const row = midiModal.querySelector(`tr[data-os="${os}"]`);
+      if (row) row.classList.add("current");
+    }
+    const errorLine = document.getElementById("midi-modal-error");
+    if (errorLine && err && err.message) {
+      errorLine.textContent = err.name + ": " + err.message;
+    }
+    if (midiStatusPill) {
+      midiStatusPill.classList.add("midi-help");
+      midiStatusPill.title = reason === "denied"
+        ? "MIDI access is blocked: click to see how to allow it"
+        : "This browser has no Web MIDI: click for compatible browsers";
+      midiStatusPill.addEventListener("click", (e) => {
+        if (e.target.closest("select")) return; // the device menu stays usable
+        midiModal.classList.add("open");
+      });
+    }
+    let seen = false;
+    try {
+      seen = localStorage.getItem(MIDI_HELP_SEEN_KEY + reason) === "1";
+      localStorage.setItem(MIDI_HELP_SEEN_KEY + reason, "1");
+    } catch (_) {}
+    if (!seen) midiModal.classList.add("open");
+  }
+
+  if (midiModal) {
+    if (midiCloseBtn) {
+      midiCloseBtn.addEventListener("click", () => {
+        midiModal.classList.remove("open");
+      });
+    }
+    midiModal.addEventListener("click", (e) => {
+      if (e.target === midiModal) {
+        midiModal.classList.remove("open");
+      }
+    });
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && midiModal.classList.contains("open")) {
+        midiModal.classList.remove("open");
       }
     });
   }

@@ -953,6 +953,83 @@
       color: #ffffff;
       border-bottom-color: #ffffff;
     }
+
+    /* Browsers with and without Web MIDI, shown when this one has none */
+    .compat-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      font-size: 0.8rem;
+    }
+
+    .compat-table th,
+    .compat-table td {
+      text-align: left;
+      vertical-align: top;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .compat-table th {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    .compat-table td:first-child {
+      white-space: nowrap;
+      font-weight: 600;
+      color: #ffffff;
+    }
+
+    .compat-table .yes { color: var(--ok); }
+    .compat-table .no { color: var(--bad); }
+
+    .compat-table tr.current td {
+      background: rgba(229, 169, 82, 0.12);
+    }
+
+    .compat-table tr.current td:first-child::after {
+      content: " (this device)";
+      font-weight: 400;
+      color: var(--amber);
+    }
+
+    #midiStatusPill.midi-help {
+      cursor: pointer;
+    }
+
+    /* The MIDI modal shows the variant matching its data-show (set by app.js) */
+    #midi-modal [data-reason] {
+      display: none;
+    }
+
+    #midi-modal[data-show="unsupported"] [data-reason="unsupported"],
+    #midi-modal[data-show="denied"] [data-reason="denied"] {
+      display: block;
+    }
+
+    #midi-modal[data-show] span[data-reason] {
+      display: none;
+    }
+
+    #midi-modal[data-show="unsupported"] span[data-reason="unsupported"],
+    #midi-modal[data-show="denied"] span[data-reason="denied"] {
+      display: inline;
+    }
+
+    .midi-error {
+      margin-top: 8px !important;
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      color: var(--muted) !important;
+    }
+
+    .midi-error:empty {
+      display: none;
+    }
   </style>
 </head>
 <body class="preload">
@@ -965,7 +1042,7 @@
       </div>
 
       <div class="topbar-controls" id="topbarControls">
-        <div class="pill-control" title="WebMIDI Controller Connection">
+        <div id="midiStatusPill" class="pill-control" title="WebMIDI Controller Connection">
           <span id="statusDot" class="led"></span>
           <span id="statusText" class="pill-label">MIDI</span>
           <select id="deviceSelect" class="apple-select" aria-label="Select MIDI Device" style="border:none; background:transparent; padding:0 4px; width:172px; text-overflow:ellipsis;">
@@ -1151,7 +1228,7 @@
       <div class="modal-section">
         <h3>Real-Time Physical Modeling</h3>
         <p>
-          Rather than playing back static audio samples, BandoPM synthesizes sound from first-principles acoustics in real time using Rust and WebAssembly (<code>AudioWorklet</code>): it solves the nonlinear fluid-structure interaction of blown-closed cantilever free reeds driven by Bernoulli orifice airflow, coupled 8&prime; + 4&prime; octave reed pairs sharing individual wooden <em>celda</em> cavities, leather pallet (<em>zapatilla</em>) transients, and the distinct acoustic resonances of the Left (<em>Bajos</em>) and Right (<em>Cantabile</em>) wooden boxes.
+          Rather than playing back static audio samples, BandoPM synthesizes sound from first-principles acoustics in real time: it solves the nonlinear fluid-structure interaction of blown-closed cantilever free reeds driven by Bernoulli orifice airflow, coupled 8&prime; + 4&prime; octave reed pairs sharing individual wooden <em>celda</em> cavities, leather pallet (<em>zapatilla</em>) transients, and the distinct acoustic resonances of the Left (<em>Bajos</em>) and Right (<em>Cantabile</em>) wooden boxes.
         </p>
       </div>
 
@@ -1164,6 +1241,67 @@
     </div>
   </div>
 
-  <script src="app.js?v=5.17"></script>
+  <!-- No Web MIDI Modal: opened by app.js when navigator.requestMIDIAccess is missing -->
+  <div id="midi-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="midi-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="midi-modal-title" class="modal-title">
+          <span data-reason="unsupported">This browser has no MIDI</span>
+          <span data-reason="denied">MIDI access is blocked</span>
+        </h2>
+        <button id="btn-midi-close" class="apple-btn icon-btn" aria-label="Close" title="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-section" data-reason="denied">
+        <p>
+          This browser supports MIDI, but access was refused for this page, so BandoPM cannot hear a Bandolibre or any other MIDI controller. You can still play it with the on-screen keyboard, by touch or with the computer keyboard.
+        </p>
+      </div>
+
+      <div class="modal-section" data-reason="denied">
+        <h3>Allow MIDI</h3>
+        <p>
+          <strong>Chrome, Edge, Opera:</strong> click the icon at the left of the address bar, set <em>MIDI devices</em> to <em>Allow</em>, then reload the page.<br>
+          <strong>Firefox:</strong> reload the page and accept the site permission it offers to install.
+        </p>
+        <p id="midi-modal-error" class="midi-error"></p>
+      </div>
+
+      <div class="modal-section" data-reason="unsupported">
+        <p>
+          This browser does not support Web MIDI, so BandoPM cannot hear a Bandolibre or any other MIDI controller. You can still play it with the on-screen keyboard, by touch or with the computer keyboard.
+        </p>
+      </div>
+
+      <div class="modal-section" data-reason="unsupported">
+        <h3>Browsers with Web MIDI</h3>
+        <table class="compat-table">
+          <thead>
+            <tr><th>Device</th><th>Works</th><th>Does not work</th></tr>
+          </thead>
+          <tbody>
+            <tr data-os="windows"><td>Windows</td><td class="yes">Chrome, Edge, Opera, Firefox</td><td>&mdash;</td></tr>
+            <tr data-os="mac"><td>macOS</td><td class="yes">Chrome, Edge, Firefox</td><td class="no">Safari</td></tr>
+            <tr data-os="linux"><td>Linux</td><td class="yes">Chrome, Chromium, Edge, Firefox</td><td>&mdash;</td></tr>
+            <tr data-os="android"><td>Android</td><td class="yes">Chrome, Edge, Samsung Internet</td><td class="no">Firefox</td></tr>
+            <tr data-os="ios"><td>iPhone, iPad</td><td>&mdash;</td><td class="no">Every browser: Apple does not allow Web MIDI on iOS</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="modal-section" data-reason="unsupported">
+        <p>
+          Firefox asks you to allow a site permission the first time. On Android, connect the instrument with a USB-C cable or an OTG adapter.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=5.18"></script>
 </body>
 </html>
