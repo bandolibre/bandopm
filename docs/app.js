@@ -32,16 +32,11 @@
   // 1. WebMIDI Device Discovery & Auto-Selection (Mirrors Bandolibre midi.html)
   // =========================================================================
   // The firmware's USB strings (code/main-g474/usb/usb_descriptors.c) are
-  // product "Bandolibre" and manufacturer "L'Atelier du Bandonéon Libre".
-  // Linux/macOS name the MIDI port after the product, Windows after the
-  // manufacturer, so a board is recognised by either string. Compared
-  // lowercased, without accents or punctuation. Keep identical to the copy in
+  // "Bandolibre" for both product and manufacturer, so the MIDI port name
+  // contains it whether the OS names ports after the product (Linux, macOS)
+  // or the manufacturer (Windows). Keep identical to the copy in
   // bandolibre docs/tools/midi.html.
-  const BANDOLIBRE_RE = /bandolibre|bandoneonlibre/;
-  function normalizeUsbString(s) {
-    return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "")
-      .toLowerCase().replace(/[^a-z0-9]/g, "");
-  }
+  const BANDOLIBRE_RE = /bandolibre/i;
   // Matches code/main-g474/app/keyboard.h in bandolibre/bandolibre:
   // L_MIDI_CH = 0 (1-based ch 1 = Left Wing / Bajos)
   // R_MIDI_CH = 1 (1-based ch 2 = Right Wing / Cantabile)
@@ -177,10 +172,9 @@
     updateBellowsDirectionUI();
   }
 
-  // device: an entry of collectDevices() (name + manufacturer of its ports).
+  // device: an entry of collectDevices().
   function isBandolibre(device) {
-    return !!device && [device.name, device.manufacturer]
-      .some((s) => BANDOLIBRE_RE.test(normalizeUsbString(s)));
+    return !!device && BANDOLIBRE_RE.test(device.name);
   }
 
   function setStatus(kind, text) {
@@ -220,8 +214,7 @@
         const input = ins[i] || null;
         const output = outs[i] || null;
         const key = (input && input.id) || (output && output.id);
-        const manufacturer = (input && input.manufacturer) || (output && output.manufacturer) || "";
-        devices.push({ key, name, manufacturer, input, output, index: i, total: count });
+        devices.push({ key, name, input, output, index: i, total: count });
       }
     }
     return devices;
