@@ -152,11 +152,11 @@
     /* Two-line controls and the vertical BandoPM brand switch together, at
        the width where the controls stop fitting on one line. The MIDI and
        Model menus have fixed widths, so that width is known except for the
-       optional Configure and Install buttons (30px + 8px gap each). The
-       frame around the top bar is the container: each optional button that
-       takes space pads it by 38px, and the top bar takes that padding back
-       with a negative margin, so it keeps its size while the container
-       reports 38px less. One threshold then fits every set of buttons:
+       optional Configure button (30px + 8px gap) and Install chip (84px +
+       8px). The frame around the top bar is the container: each optional
+       button that takes space pads it by its width and gap, and the top bar
+       takes that padding back with a negative margin, so it keeps its size
+       while the container reports that much less. One threshold then fits every set of buttons:
        ~714px with About alone, plus 10px for wider system fonts. The
        flex-wrap above stays as a safety net. */
     [hidden] {
@@ -173,8 +173,9 @@
       --configure-slot: 38px;
     }
 
+    /* The Install chip is 84px wide: 92px with its gap. */
     .topbar-frame:has(#btn-install-pwa:not([hidden])) {
-      --install-slot: 38px;
+      --install-slot: 92px;
     }
 
     .topbar-frame > .topbar {
@@ -202,13 +203,23 @@
         gap: 8px;
       }
 
+      /* Configure, Install, then About at the bottom, as in the row. */
       #btn-info {
-        order: 1;
-      }
-
-      #btn-install-pwa {
         order: 2;
         margin-top: auto;
+      }
+
+      /* Stacked: the icon alone, so the column stays narrow. */
+      #btn-install-pwa {
+        order: 1;
+        width: 30px;
+        padding: 0;
+        border-radius: 8px;
+        justify-content: center;
+      }
+
+      #btn-install-pwa .install-label {
+        display: none;
       }
 
       .topbar .brand {
@@ -352,6 +363,26 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
+    }
+
+    /* PWA install, as a chip with Chrome's install icon (a screen and a down
+       arrow). Same in the Bandolibre tools (main/docs/connect, update): keep
+       them alike. Fixed width, which the top bar's layout counts on. */
+    button.apple-btn.install-chip {
+      width: 84px;
+      height: 30px;
+      padding: 0;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      font-weight: 600;
+    }
+
+    button.apple-btn.install-chip svg {
+      flex: none;
+      color: var(--muted);
     }
 
     button.apple-btn.primary {
@@ -1164,12 +1195,15 @@
           </svg>
         </button>
 
-        <button id="btn-install-pwa" class="apple-btn icon-btn" style="visibility:hidden;" aria-label="Install App" title="Install BandoPM as a standalone app">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 3v12" />
-            <path d="m7 10 5 5 5-5" />
-            <path d="M5 21h14" />
+        <button id="btn-install-pwa" class="apple-btn install-chip" style="visibility:hidden;" aria-label="Install App" title="Install BandoPM as a standalone app">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <path d="M8 21h8" />
+            <path d="M12 17v4" />
+            <path d="M12 6v7" />
+            <path d="m9 10 3 3 3-3" />
           </svg>
+          <span class="install-label">Install</span>
         </button>
 
         <button id="btn-info" class="apple-btn icon-btn" aria-label="About BandoPM" title="About BandoPM">
