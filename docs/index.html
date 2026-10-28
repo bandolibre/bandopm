@@ -43,6 +43,13 @@
       box-sizing: border-box;
     }
 
+    /* The scrollbar's room is kept from the start: the page grows taller at
+       load, and a scrollbar appearing then would narrow it by its width, which
+       near the top bar's threshold flips it to two lines. */
+    html {
+      scrollbar-gutter: stable;
+    }
+
     body {
       margin: 0;
       min-height: 100vh;
@@ -97,10 +104,10 @@
       flex-shrink: 0;
     }
 
+    /* Inline text, not flex, so a copied name stays "BandoPM" on one line. */
     .brand h1 {
       margin: 0;
-      display: inline-flex;
-      align-items: baseline;
+      display: inline-block;
       font-size: 1.02rem;
       font-weight: 600;
       line-height: 1;
@@ -109,7 +116,13 @@
       white-space: nowrap;
     }
 
+    /* The handwritten font arrives a moment after the first layout: "Bando"
+       keeps its final width (2.25em in BandoHand) from the start, so the menus
+       beside the brand don't move when it does. Logical size, so it also holds
+       in the narrow layout's vertical brand. */
     .brand-bando {
+      display: inline-block;
+      inline-size: 2.25em;
       font-family: 'BandoHand', 'Segoe Script', 'Snell Roundhand', 'Apple Chancery', cursive;
       font-size: 1.32em;
       font-weight: 700;
@@ -203,15 +216,13 @@
         gap: 8px;
       }
 
-      /* Configure, Install, then About at the bottom, as in the row. */
+      /* Install, Configure, then About at the bottom, as in the row. */
       #btn-info {
-        order: 2;
         margin-top: auto;
       }
 
       /* Stacked: the icon alone, so the column stays narrow. */
       #btn-install-pwa {
-        order: 1;
         width: 30px;
         padding: 0;
         border-radius: 8px;
@@ -299,6 +310,12 @@
     .pill-label {
       font-size: 0.76rem;
       color: var(--muted);
+    }
+
+    /* Room for the longest status, "MIDI blocked", from the start: the MIDI
+       menu beside it stays put as the status changes at load. */
+    #statusText {
+      min-width: 6.6em;
     }
 
     /* A labelled control in the keyboard toolbar: its name, then the control. */
@@ -1031,8 +1048,6 @@
       font-size: 1.05rem;
       font-weight: 600;
       color: #ffffff;
-      display: inline-flex;
-      align-items: baseline;
     }
 
     .modal-section {
@@ -1188,13 +1203,6 @@
       </div>
 
       <div class="topbar-actions">
-        <button id="btn-configure" class="apple-btn icon-btn" hidden aria-label="Configure Bandolibre" title="Open the Bandolibre configuration tool in a new window">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-        </button>
-
         <button id="btn-install-pwa" class="apple-btn install-chip" style="visibility:hidden;" aria-label="Install App" title="Install BandoPM as a standalone app">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -1204,6 +1212,13 @@
             <path d="m9 10 3 3 3-3" />
           </svg>
           <span class="install-label">Install</span>
+        </button>
+
+        <button id="btn-configure" class="apple-btn icon-btn" style="visibility:hidden;" aria-label="Configure Bandolibre" title="Open the Bandolibre configuration tool in a new window">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
         </button>
 
         <button id="btn-info" class="apple-btn icon-btn" aria-label="About BandoPM" title="About BandoPM">
@@ -1425,6 +1440,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=5.22"></script>
+  <script src="app.js?v=5.23"></script>
 </body>
 </html>

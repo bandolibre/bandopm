@@ -34,9 +34,12 @@
   // The firmware's USB strings (code/main-g474/usb/usb_descriptors.c) are
   // "Bandolibre" for both product and manufacturer, so the MIDI port name
   // contains it whether the OS names ports after the product (Linux, macOS)
-  // or the manufacturer (Windows). Keep identical to the copy in
-  // bandolibre docs/tools/midi.html.
+  // or the manufacturer (Windows). The bootloader's strings are "Bandolibre
+  // firmware update" (code/boot-g474/usb_descriptors.c): that port belongs to
+  // the update tool and is never auto-connected. Keep identical to the copy
+  // in bandolibre docs/connect/index.html.
   const BANDOLIBRE_RE = /bandolibre/i;
+  const UPDATE_MODE_RE = /firmware update/i;
   // Matches code/main-g474/app/keyboard.h in bandolibre/bandolibre:
   // L_MIDI_CH = 0 (1-based ch 1 = Left Wing / Bajos)
   // R_MIDI_CH = 1 (1-based ch 2 = Right Wing / Cantabile)
@@ -131,15 +134,24 @@
     return covered;
   }
 
-  function parseHelloBellowsDirection(payload) {
-    // HELLO response layout: [0x00, version_str..., 0x00, count_lo, count_hi, wing_l, wing_r, bellows, ...]
+  // HELLO's mode byte (bandolibre code/common/sysex/sysex_ids.h). Firmware
+  // older than it has the property count there, so any other value is an
+  // instrument too, just without a readable bellows direction.
+  const SYSEX_MODE_INSTRUMENT = 0;
+  const SYSEX_MODE_UPDATE = 1;
+
+  /* { mode, bellows } from a HELLO response, or null. Layout: [0x00,
+   * version_str..., 0x00, mode, u16 generation] then, in instrument mode
+   * only, [u16 count, wing_l, wing_r, bellows]. */
+  function parseHello(payload) {
     let pos = 1;
     while (pos < payload.length && payload[pos] !== 0) pos++;
-    if (pos >= payload.length) return null;
     pos++; // skip NUL terminator
-    pos += 4; // skip uint16 count + 2 wing ID bytes
     if (pos >= payload.length) return null;
-    return payload[pos];
+    const mode = payload[pos];
+    if (mode !== SYSEX_MODE_INSTRUMENT) return { mode, bellows: null };
+    pos += 1 + 2 + 4; // mode, generation, count, wing ids
+    return { mode, bellows: pos < payload.length ? payload[pos] : null };
   }
 
   function updateBellowsDirectionUI() {
@@ -174,7 +186,12 @@
 
   // device: an entry of collectDevices().
   function isBandolibre(device) {
-    return !!device && BANDOLIBRE_RE.test(device.name);
+    return !!device && BANDOLIBRE_RE.test(device.name) && !UPDATE_MODE_RE.test(device.name);
+  }
+
+  // A Bandolibre in firmware update mode (its bootloader).
+  function isBandolibreUpdater(device) {
+    return !!device && BANDOLIBRE_RE.test(device.name) && UPDATE_MODE_RE.test(device.name);
   }
 
   function setStatus(kind, text) {
@@ -221,7 +238,8 @@
   }
 
   function deviceLabel(device) {
-    return device.total > 1 ? `${device.name} (${device.index + 1})` : device.name;
+    const name = device.total > 1 ? `${device.name} (${device.index + 1})` : device.name;
+    return isBandolibreUpdater(device) ? name + " — updating" : name;
   }
 
   function renderSelector() {
@@ -246,10 +264,17 @@
   }
 
   // Configuration tool: its "gear" button is shown while a Bandolibre is the
-  // connected device, and opens the tool in a new window.
-  const CONFIG_TOOL_URL = "https://bandolibre.github.io/bandolibre/tools/midi.html";
+  // connected device, and opens the tool in a new window. Like the install
+  // button, it keeps its place while invisible, so the Model menu doesn't
+  // move when a Bandolibre connects at load; without Web MIDI it can never
+  // appear and is removed before the first paint.
+  const CONFIG_TOOL_URL = "https://bandolibre.github.io/bandolibre/connect/";
+  const UPDATE_TOOL_URL = "https://bandolibre.github.io/bandolibre/update/";
+  // Set when the connected device answered HELLO in firmware update mode.
+  let activeIsUpdater = false;
   const configureBtn = document.getElementById("btn-configure");
   if (configureBtn) {
+    if (!navigator.requestMIDIAccess) configureBtn.hidden = true;
     configureBtn.addEventListener("click", () => {
       window.open(CONFIG_TOOL_URL, "bandolibre-config", "popup,width=1100,height=800,noopener");
     });
@@ -258,18 +283,43 @@
   function updateConfigureButton() {
     if (!configureBtn) return;
     const device = activeKey && collectDevices().find((d) => d.key === activeKey);
-    configureBtn.hidden = !isBandolibre(device);
+    configureBtn.style.visibility = isBandolibre(device) ? "visible" : "hidden";
   }
 
   function updateStatus() {
     updateConfigureButton();
     if (!midiAccess) return;
-    if (activeName) {
+    // A Bandolibre in firmware update mode is shown, never played: say so on
+    // the pill, and pick the instrument up again when the update is over.
+    const updating = activeIsUpdater || collectDevices().some(isBandolibreUpdater);
+    const pill = document.getElementById("midiStatusPill");
+    if (pill && !pill.classList.contains("midi-help")) {
+      pill.title = updating
+        ? "A Bandolibre is in firmware update mode (" + UPDATE_TOOL_URL + "). BandoPM reconnects when it finishes."
+        : "WebMIDI Controller Connection";
+    }
+    if (activeName && !activeIsUpdater) {
       setStatus("ok", "MIDI");
+    } else if (updating) {
+      setStatus("warn", "Updating");
     } else {
       const hasAnyDevice = collectDevices().length > 0;
       setStatus(hasAnyDevice ? "warn" : "", "MIDI");
     }
+  }
+
+  /* The connected device answered HELLO in firmware update mode: picked by
+   * hand, or a port name the OS kept from the instrument. Stop the velocity
+   * lease and stop listening; reconcileDevices() drops it when the update
+   * ends and auto-connect picks the instrument up. */
+  function enterUpdateMode() {
+    activeIsUpdater = true;
+    if (activeInput) activeInput.onmidimessage = null;
+    if (activeIsBandolibre) {
+      activeIsBandolibre = false;
+      setVelocityMode(VELOCITY_LOUDNESS);
+    }
+    updateStatus();
   }
 
   function disconnect() {
@@ -278,6 +328,7 @@
     activeName = null;
     activeInput = null;
     activeOutput = null;
+    activeIsUpdater = false;
     sysexBuf = [];
     inSysex = false;
     sendAllNotesOff();
@@ -475,9 +526,13 @@
             if (payload[0] === SYSEX_MSG_BELLOWS_DIRECTION && payload.length >= 2) {
               setBellowsDirection(payload[1]);
             } else if (payload[0] === SYSEX_MSG_HELLO) {
-              const helloDir = parseHelloBellowsDirection(payload);
-              if (helloDir !== null) {
-                setBellowsDirection(helloDir);
+              const hello = parseHello(payload);
+              if (hello && hello.mode === SYSEX_MODE_UPDATE) {
+                enterUpdateMode();
+                return;
+              }
+              if (hello && hello.bellows !== null) {
+                setBellowsDirection(hello.bellows);
               }
             }
           }

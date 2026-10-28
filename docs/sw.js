@@ -1,4 +1,4 @@
-const CACHE_NAME = "bandopm-pwa-v5-31";
+const CACHE_NAME = "bandopm-pwa-v5-32";
 const PRECACHE_ASSETS = [
   "./",
   "./index.html",
@@ -24,7 +24,9 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((keys) =>
       Promise.all(
         keys
-          .filter((key) => key !== CACHE_NAME)
+          // Caches are per origin, shared with the Bandolibre tools when
+          // both are served from bandolibre.github.io: only drop our own.
+          .filter((key) => key.startsWith("bandopm-") && key !== CACHE_NAME)
           .map((oldKey) => caches.delete(oldKey))
       )
     )
