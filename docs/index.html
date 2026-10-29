@@ -46,18 +46,20 @@
     /* The scrollbar's room is kept from the start: the page grows taller at
        load, and a scrollbar appearing then would narrow it by its width, which
        near the top bar's threshold flips it to two lines. */
+    /* The background fills the window from html, at least 100% tall: the
+       window's own height. The page is then only as tall as its content; a
+       100vh or 100dvh body was taller than the installed app's window on
+       Android, and scrolled to nothing. */
     html {
       scrollbar-gutter: stable;
+      min-height: 100%;
+      background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bot) 100%);
     }
 
     body {
       margin: 0;
-      /* The visible height: on a phone, 100vh can be taller and scroll. */
-      min-height: 100vh;
-      min-height: 100dvh;
       padding: 16px 20px;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
-      background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bot) 100%);
       color: var(--fg);
       user-select: none;
       -webkit-font-smoothing: antialiased;
