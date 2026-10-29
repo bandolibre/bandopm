@@ -52,13 +52,26 @@
 
     body {
       margin: 0;
+      /* The visible height: on a phone, 100vh can be taller and scroll. */
       min-height: 100vh;
+      min-height: 100dvh;
       padding: 16px 20px;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif;
       background: linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bot) 100%);
       color: var(--fg);
       user-select: none;
       -webkit-font-smoothing: antialiased;
+    }
+
+    /* Phones: less margin around the cards, so the page fits the screen. */
+    @media (max-width: 600px) {
+      body {
+        padding: 10px 12px;
+      }
+
+      .app-shell {
+        gap: 10px;
+      }
     }
 
     body.preload *,
@@ -196,17 +209,23 @@
     }
 
     @container topbar (max-width: 724px) {
-      /* One max-content column: both pills take the wider one's width, and
-         their menus absorb the difference. */
+      /* One column: both pills take the wider one's width, and their menus
+         absorb the difference. On a phone the column is narrower than that:
+         the pills shrink, still the same width, and leave the buttons room. */
       .topbar-controls {
         display: grid;
-        grid-template-columns: max-content;
+        grid-template-columns: minmax(0, max-content);
         align-content: center;
         gap: 8px;
       }
 
+      .topbar-controls > .pill-control {
+        min-width: 0;
+      }
+
       .topbar-controls > .pill-control select.apple-select {
         flex: 1 1 auto;
+        min-width: 0;
       }
 
       .topbar-actions {
@@ -216,9 +235,9 @@
         gap: 8px;
       }
 
-      /* Install, Configure, then About at the bottom, as in the row. */
+      /* About first, level with the MIDI menu, then Install and Configure. */
       #btn-info {
-        margin-top: auto;
+        order: -1;
       }
 
       /* Stacked: the icon alone, so the column stays narrow. */
@@ -587,8 +606,8 @@
     }
 
     /* Notes off stays at the right end of the first line; the labelled groups
-       beside it wrap from the last one, so on a narrow window Velocity sets
-       moves to a line of its own before Keyboard does. */
+       beside it wrap from the last one, so on a narrow window Tuning moves to
+       a line of its own before Velocity sets does. */
     .stage-toolbar {
       display: flex;
       align-items: flex-start;
@@ -664,13 +683,8 @@
       align-items: stretch;
     }
 
-    .kbd-stack.single-mode {
-      grid-template-columns: 1fr 64px;
-    }
-
     @media (max-width: 1100px) {
-      .kbd-stack,
-      .kbd-stack.single-mode {
+      .kbd-stack {
         grid-template-columns: 1fr;
       }
 
@@ -834,29 +848,27 @@
       letter-spacing: 0.02em;
     }
 
-    /* Piano Keys */
+    /* Piano Keys: the keyboard always fits its lane, never scrolls sideways. */
     .piano-scroll {
+      container-type: inline-size;
       width: 100%;
-      overflow-x: auto;
       padding-bottom: 2px;
     }
 
+    /* Keys no taller than 8.5 times their white key width (app.js sets
+       --white-keys): a narrow window, such as a phone, gets shorter keyboards
+       rather than thin keys and a page that scrolls. Never under 120px, and
+       the installed desktop app (1132px wide) still has the full height. */
     .piano-container {
       position: relative;
       display: flex;
-      height: 184px;
+      height: clamp(120px, 100cqw / var(--white-keys, 1) * 8.5, 172px);
       width: 100%;
-      min-width: 360px;
       background: #0c0d10;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 7px;
       padding: 3px;
       touch-action: none;
-    }
-
-    .piano-container.compact-lane {
-      height: 172px;
-      min-width: 320px;
     }
 
     .piano-key {
@@ -976,31 +988,6 @@
     .key-hand-tag,
     .key-overlap-pill {
       display: none;
-    }
-
-    .split-divider {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      width: 2px;
-      background: var(--amber);
-      z-index: 6;
-      pointer-events: none;
-    }
-
-    .split-divider-badge {
-      position: absolute;
-      top: 4px;
-      transform: translateX(-50%);
-      background: #18191d;
-      color: var(--amber);
-      border: 1px solid rgba(229, 169, 82, 0.45);
-      font-family: var(--mono);
-      font-size: 0.64rem;
-      font-weight: 600;
-      padding: 2px 7px;
-      border-radius: 999px;
-      white-space: nowrap;
     }
 
     /* Info Modal */
@@ -1272,29 +1259,6 @@
     <div class="keyboard-stage">
       <div class="stage-toolbar">
         <div class="stage-toolbar-controls">
-        <div class="toolbar-group">
-          <span class="pill-label" id="manualSegLabel">Keyboard</span>
-          <div class="segmented-bar" id="manualSegBar" role="tablist" aria-labelledby="manualSegLabel">
-            <button type="button" class="seg-btn active" data-mode="dual">Dual</button>
-            <button type="button" class="seg-btn" data-mode="pianist_split">Pianist Split</button>
-            <button type="button" class="seg-btn" data-mode="left">Bajos</button>
-            <button type="button" class="seg-btn" data-mode="right">Cantabile</button>
-          </div>
-        </div>
-
-        <div id="splitPointGroup" style="display:none; align-items:center; gap:6px; flex-shrink:0;">
-          <label for="splitNoteSelect" class="pill-label">Split</label>
-          <select id="splitNoteSelect" class="apple-select">
-            <option value="55">G3</option>
-            <option value="57">A3</option>
-            <option value="60" selected>C4</option>
-            <option value="62">D4</option>
-            <option value="64">E4</option>
-            <option value="65">F4</option>
-            <option value="67">G4</option>
-          </select>
-        </div>
-
         <div class="toolbar-group"
              title="What MIDI note velocity sets.&#10;&#10;Loudness (piano keyboards): note-on velocity sets the note's loudness and how sharply it starts; note-off velocity, how sharply it stops. CC#11 still scales the level when sent; the sustain pedal (CC#64) holds notes.&#10;&#10;Attack &amp; release (Bandolibre): CC#11, the bellows, sets the loudness; note-on and note-off velocity only set how sharply each note starts and stops. Chosen when a Bandolibre is paired, which then sends its key speed as velocity.&#10;&#10;The on-screen keyboard sounds the same either way.">
           <span class="pill-label" id="velocitySegLabel">Velocity sets</span>
@@ -1312,14 +1276,6 @@
           </div>
         </div>
         </div>
-
-        <!-- Hidden select kept in sync for keyboard mode logic -->
-        <select id="manualSelect" style="display:none;">
-          <option value="dual" selected>Dual</option>
-          <option value="pianist_split">Pianist Split</option>
-          <option value="left">Bajos</option>
-          <option value="right">Cantabile</option>
-        </select>
 
         <button id="btn-panic" class="apple-btn icon-btn" style="flex-shrink:0;" aria-label="Notes off" title="Notes off">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

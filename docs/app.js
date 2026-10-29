@@ -589,7 +589,9 @@
     if (SYNTH_VERSIONS.some((v) => v.id === saved)) activeVersionId = saved;
   }
   let currentStereoWidth = 0.84;
-  let currentSplitNote = 60; // C4
+  // Notes from a MIDI channel other than the two hands': below C4 they play
+  // the left hand (the synth's default split).
+  const SPLIT_MIDI = 60;
   const pendingMainMidi = [];
 
   // Fallback main-thread WASM mirror so the spectrogram & L/R meters animate from MIDI
@@ -618,11 +620,7 @@
   const versionSelect = document.getElementById("versionSelect");
   const postPresetSelect = document.getElementById("postPresetSelect");
   const knobsRow = document.getElementById("knobsRow");
-  const manualSelect = document.getElementById("manualSelect");
-  const manualSegBar = document.getElementById("manualSegBar");
   const velocitySegBar = document.getElementById("velocitySegBar");
-  const splitPointGroup = document.getElementById("splitPointGroup");
-  const splitNoteSelect = document.getElementById("splitNoteSelect");
   const invertYToggle = document.getElementById("invertYToggle");
   const sustainHoldToggle = document.getElementById("sustainHoldToggle");
   const pianoStack = document.getElementById("pianoStack");
@@ -1009,7 +1007,6 @@
           }
         };
 
-        const isPianistSplit = manualSelect && manualSelect.value === "pianist_split";
         try {
           const mirrorRes = await WebAssembly.instantiate(wasmBytes, {});
           mirrorWasm = mirrorRes.instance.exports;
@@ -1022,14 +1019,8 @@
           if (mirrorWasm.synth_set_reference_hz) {
             mirrorWasm.synth_set_reference_hz(mirrorCtx, referenceHz);
           }
-          if (mirrorWasm.synth_set_keyboard_mode) {
-            mirrorWasm.synth_set_keyboard_mode(mirrorCtx, isPianistSplit ? 1 : 0);
-          }
           if (mirrorWasm.synth_set_velocity_mode) {
             mirrorWasm.synth_set_velocity_mode(mirrorCtx, velocityMode);
-          }
-          if (mirrorWasm.synth_set_split_note) {
-            mirrorWasm.synth_set_split_note(mirrorCtx, currentSplitNote | 0);
           }
           if (mirrorWasm.synth_set_stereo_width) {
             mirrorWasm.synth_set_stereo_width(mirrorCtx, +currentStereoWidth);
@@ -1056,8 +1047,6 @@
           wasmBytes,
           velocityMode,
           versionId: activeVersionId,
-          keyboardMode: isPianistSplit ? 1 : 0,
-          splitNote: currentSplitNote,
           referenceHz,
           stereoWidth: currentStereoWidth,
           postEnabled,
@@ -1215,39 +1204,10 @@
   }
 
   function effectiveChannelForHardwareMidi(rawChannel, midi) {
-    if (manualSelect && manualSelect.value === "pianist_split") {
-      return midi < currentSplitNote ? KBD_CHANNEL.left : KBD_CHANNEL.right;
-    }
     if (rawChannel === KBD_CHANNEL.left || rawChannel === KBD_CHANNEL.right) {
       return rawChannel;
     }
-    return midi < currentSplitNote ? KBD_CHANNEL.left : KBD_CHANNEL.right;
-  }
-
-  function syncKeyboardModeToWorklet() {
-    const mode = manualSelect ? manualSelect.value : "dual";
-    const isPianistSplit = mode === "pianist_split";
-    if (splitPointGroup) {
-      splitPointGroup.style.display = isPianistSplit ? "inline-flex" : "none";
-    }
-    if (workletNode) {
-      workletNode.port.postMessage({
-        type: "set-keyboard-mode",
-        modeId: isPianistSplit ? 1 : 0,
-      });
-      workletNode.port.postMessage({
-        type: "set-split-note",
-        splitNote: currentSplitNote,
-      });
-    }
-    if (mirrorWasm && mirrorCtx) {
-      if (mirrorWasm.synth_set_keyboard_mode) {
-        mirrorWasm.synth_set_keyboard_mode(mirrorCtx, isPianistSplit ? 1 : 0);
-      }
-      if (mirrorWasm.synth_set_split_note) {
-        mirrorWasm.synth_set_split_note(mirrorCtx, currentSplitNote | 0);
-      }
-    }
+    return midi < SPLIT_MIDI ? KBD_CHANNEL.left : KBD_CHANNEL.right;
   }
 
   function yRatioFromKeyEvent(keyEl, clientY) {
@@ -1402,8 +1362,6 @@
     startMidi,
     endMidi,
     channelResolver,
-    compact = false,
-    splitMarkerMidi = null,
   }) {
     const laneEl = document.createElement("div");
     laneEl.className = `manual-lane ${laneClass}`;
@@ -1421,7 +1379,7 @@
     const scrollEl = document.createElement("div");
     scrollEl.className = "piano-scroll";
     const containerEl = document.createElement("div");
-    containerEl.className = `piano-container${compact ? " compact-lane" : ""}`;
+    containerEl.className = "piano-container";
 
     const whiteMidis = [];
     for (let m = startMidi; m <= endMidi; m++) {
@@ -1429,6 +1387,8 @@
     }
     const totalWhites = whiteMidis.length;
     const whiteWidthPct = 100 / Math.max(1, totalWhites);
+    // The CSS sizes the keyboard's height from its white key width.
+    containerEl.style.setProperty("--white-keys", Math.max(1, totalWhites));
 
     let whiteIndex = 0;
     const whiteIndexByMidi = new Map();
@@ -1455,20 +1415,6 @@
       }
     }
 
-    if (splitMarkerMidi !== null && splitMarkerMidi > startMidi && splitMarkerMidi <= endMidi) {
-      let splitWhiteIdx = whiteIndexByMidi.get(splitMarkerMidi);
-      if (splitWhiteIdx === undefined) {
-        const prevW = whiteIndexByMidi.get(splitMarkerMidi - 1);
-        splitWhiteIdx = prevW !== undefined ? prevW + 0.5 : 0;
-      }
-      const splitLeftPct = splitWhiteIdx * whiteWidthPct;
-      const dividerEl = document.createElement("div");
-      dividerEl.className = "split-divider";
-      dividerEl.style.left = `${splitLeftPct.toFixed(3)}%`;
-      dividerEl.innerHTML = `<div class="split-divider-badge">Split @ ${midiNoteLabel(splitMarkerMidi)}</div>`;
-      containerEl.appendChild(dividerEl);
-    }
-
     scrollEl.appendChild(containerEl);
     laneEl.appendChild(scrollEl);
     return laneEl;
@@ -1477,79 +1423,33 @@
   function buildInteractivePiano() {
     if (!pianoStack) return;
     pianoStack.innerHTML = "";
-    const mode = manualSelect ? manualSelect.value : "dual";
-    syncKeyboardModeToWorklet();
+    const leftLane = createPianoLaneDOM({
+      laneClass: "left-lane",
+      titleText: "Bajos · Ch 1 (C2–B4)",
+      metaText: "",
+      startMidi: 36,
+      endMidi: 71,
+      channelResolver: () => KBD_CHANNEL.left,
+    });
 
-    if (mode === "dual") {
-      pianoStack.classList.remove("single-mode");
-      const leftLane = createPianoLaneDOM({
-        laneClass: "left-lane",
-        titleText: "Bajos · Ch 1 (C2–B4)",
-        metaText: "",
-        startMidi: 36,
-        endMidi: 71,
-        channelResolver: () => KBD_CHANNEL.left,
-        compact: true,
-      });
+    const spine = createBellowsSpineDOM();
 
-      const spine = createBellowsSpineDOM();
+    const rightLane = createPianoLaneDOM({
+      laneClass: "right-lane",
+      titleText: "Cantabile · Ch 2 (C4–C7)",
+      metaText: "",
+      startMidi: 60,
+      endMidi: 96,
+      channelResolver: () => KBD_CHANNEL.right,
+    });
 
-      const rightLane = createPianoLaneDOM({
-        laneClass: "right-lane",
-        titleText: "Cantabile · Ch 2 (C4–C7)",
-        metaText: "",
-        startMidi: 60,
-        endMidi: 96,
-        channelResolver: () => KBD_CHANNEL.right,
-        compact: true,
-      });
-
-      pianoStack.appendChild(leftLane);
-      pianoStack.appendChild(spine);
-      pianoStack.appendChild(rightLane);
-    } else if (mode === "pianist_split") {
-      pianoStack.classList.add("single-mode");
-      const splitLabel = midiNoteLabel(currentSplitNote);
-      const lowMaxLabel = midiNoteLabel(currentSplitNote - 1);
-      const splitLane = createPianoLaneDOM({
-        laneClass: "split-lane",
-        titleText: `Pianist Split · Bajos (C2–${lowMaxLabel}) | Cantabile (${splitLabel}–C7)`,
-        metaText: "",
-        startMidi: 36,
-        endMidi: 96,
-        channelResolver: (m) => (m < currentSplitNote ? KBD_CHANNEL.left : KBD_CHANNEL.right),
-        compact: false,
-        splitMarkerMidi: currentSplitNote,
-      });
-      pianoStack.appendChild(splitLane);
-      pianoStack.appendChild(createBellowsSpineDOM());
-    } else if (mode === "left") {
-      pianoStack.classList.add("single-mode");
-      const leftOnly = createPianoLaneDOM({
-        laneClass: "left-lane",
-        titleText: "Bajos · Ch 1 (C2–B4)",
-        metaText: "",
-        startMidi: 36,
-        endMidi: 71,
-        channelResolver: () => KBD_CHANNEL.left,
-        compact: false,
-      });
-      pianoStack.appendChild(leftOnly);
-      pianoStack.appendChild(createBellowsSpineDOM());
-    } else {
-      pianoStack.classList.add("single-mode");
-      const rightOnly = createPianoLaneDOM({
-        laneClass: "right-lane",
-        titleText: "Cantabile · Ch 2 (C4–C7)",
-        metaText: "",
-        startMidi: 60,
-        endMidi: 96,
-        channelResolver: () => KBD_CHANNEL.right,
-        compact: false,
-      });
-      pianoStack.appendChild(rightOnly);
-      pianoStack.appendChild(createBellowsSpineDOM());
-    }
+    pianoStack.appendChild(leftLane);
+    pianoStack.appendChild(spine);
+    pianoStack.appendChild(rightLane);
+    // Side-by-side lanes share one height: the one of the narrowest keys.
+    const pianos = [...pianoStack.querySelectorAll(".piano-container")];
+    const mostWhites = Math.max(...pianos.map((p) => Number(p.style.getPropertyValue("--white-keys"))));
+    pianos.forEach((p) => p.style.setProperty("--white-keys", mostWhites));
     updateBellowsDirectionUI();
   }
 
@@ -1627,73 +1527,11 @@
     return keyEl;
   }
 
-  if (manualSegBar) {
-    manualSegBar.querySelectorAll(".seg-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const mode = btn.dataset.mode;
-        if (!mode) return;
-        manualSegBar.querySelectorAll(".seg-btn").forEach((b) => {
-          b.classList.toggle("active", b === btn);
-        });
-        if (manualSelect) {
-          manualSelect.value = mode;
-        }
-        saveKeyboardSetting();
-        sendAllNotesOff();
-        buildInteractivePiano();
-      });
-    });
-  }
-
-  function saveKeyboardSetting() {
-    saveSetting("bandopm-keyboard", {
-      mode: manualSelect ? manualSelect.value : "dual",
-      splitNote: currentSplitNote,
-    });
-  }
-
   // A manual choice holds until the next Bandolibre pairing or unpairing.
   if (velocitySegBar) {
     velocitySegBar.querySelectorAll(".seg-btn").forEach((btn) => {
       btn.addEventListener("click", () => setVelocityMode(+btn.dataset.velocity));
     });
-  }
-
-  if (manualSelect) {
-    manualSelect.addEventListener("change", () => {
-      saveKeyboardSetting();
-      sendAllNotesOff();
-      buildInteractivePiano();
-    });
-  }
-
-  if (splitNoteSelect) {
-    splitNoteSelect.addEventListener("change", (e) => {
-      currentSplitNote = Number(e.target.value) || 60;
-      saveKeyboardSetting();
-      sendAllNotesOff();
-      buildInteractivePiano();
-    });
-  }
-
-  // The saved keyboard layout and split point, applied before the keyboard is
-  // first drawn and before the synth starts (which reads them).
-  {
-    const saved = loadSetting("bandopm-keyboard");
-    if (saved && typeof saved === "object") {
-      if (manualSelect && [...manualSelect.options].some((o) => o.value === saved.mode)) {
-        manualSelect.value = saved.mode;
-        if (manualSegBar) {
-          manualSegBar.querySelectorAll(".seg-btn").forEach((b) => {
-            b.classList.toggle("active", b.dataset.mode === saved.mode);
-          });
-        }
-      }
-      if (splitNoteSelect && [...splitNoteSelect.options].some((o) => Number(o.value) === saved.splitNote)) {
-        splitNoteSelect.value = String(saved.splitNote);
-        currentSplitNote = saved.splitNote;
-      }
-    }
   }
 
   buildInteractivePiano();

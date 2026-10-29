@@ -25,12 +25,6 @@ class BandolibreProcessor extends AudioWorkletProcessor {
           if (initialVer !== undefined && initialVer !== null && this.wasmExports.synth_set_version) {
             this.wasmExports.synth_set_version(this.ctxPtr, initialVer | 0);
           }
-          if (msg.keyboardMode !== undefined && this.wasmExports.synth_set_keyboard_mode) {
-            this.wasmExports.synth_set_keyboard_mode(this.ctxPtr, msg.keyboardMode | 0);
-          }
-          if (msg.splitNote !== undefined && this.wasmExports.synth_set_split_note) {
-            this.wasmExports.synth_set_split_note(this.ctxPtr, msg.splitNote | 0);
-          }
           if (msg.stereoWidth !== undefined && this.wasmExports.synth_set_stereo_width) {
             this.wasmExports.synth_set_stereo_width(this.ctxPtr, +msg.stereoWidth);
           }
@@ -72,14 +66,6 @@ class BandolibreProcessor extends AudioWorkletProcessor {
       } else if (msg.type === 'set-velocity-mode') {
         if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_velocity_mode) {
           this.wasmExports.synth_set_velocity_mode(this.ctxPtr, msg.modeId | 0);
-        }
-      } else if (msg.type === 'set-keyboard-mode') {
-        if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_keyboard_mode) {
-          this.wasmExports.synth_set_keyboard_mode(this.ctxPtr, msg.modeId | 0);
-        }
-      } else if (msg.type === 'set-split-note') {
-        if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_split_note) {
-          this.wasmExports.synth_set_split_note(this.ctxPtr, msg.splitNote | 0);
         }
       } else if (msg.type === 'set-reference-hz') {
         if (this.wasmExports && this.ctxPtr && this.wasmExports.synth_set_reference_hz) {
